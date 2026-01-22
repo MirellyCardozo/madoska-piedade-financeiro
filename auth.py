@@ -8,9 +8,15 @@ BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 DB_FILE = os.path.join(BASE_DIR, "madoska.db")
 engine = create_engine(f"sqlite:///{DB_FILE}")
 
+# ---------------------------
+# USUÁRIOS
+# ---------------------------
+
 def criar_usuario(nome, usuario, senha, perfil):
     senha_hash = bcrypt.hashpw(senha.encode(), bcrypt.gensalt()).decode()
-    with engine.connect() as conn:
+
+    # engine.begin() = salva automaticamente (COMMIT)
+    with engine.begin() as conn:
         conn.execute(text("""
         INSERT INTO usuarios (nome, usuario, senha, perfil)
         VALUES (:nome, :usuario, :senha, :perfil)
@@ -41,7 +47,7 @@ def autenticar(usuario, senha):
     return None
 
 def trocar_senha(usuario, senha_atual, nova_senha):
-    with engine.connect() as conn:
+    with engine.begin() as conn:
         result = conn.execute(text("""
         SELECT senha FROM usuarios WHERE usuario = :usuario
         """), {"usuario": usuario}).fetchone()
@@ -66,6 +72,10 @@ def trocar_senha(usuario, senha_atual, nova_senha):
         })
 
         return True, "Senha alterada com sucesso!"
+
+# ---------------------------
+# TELA DE LOGIN
+# ---------------------------
 
 def tela_login():
     st.title("🔐 Login - Madoska Piedade")
