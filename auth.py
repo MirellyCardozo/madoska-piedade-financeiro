@@ -2,7 +2,8 @@ import streamlit as st
 from sqlalchemy import create_engine, text
 import bcrypt
 
-engine = create_engine("sqlite:///madoska.db")
+DB_PATH = r"sqlite:///C:/Users/mirel/OneDrive/Área de Trabalho/madoska_financeiro/madoska.db"
+engine = create_engine(DB_PATH)
 
 def criar_usuario(nome, usuario, senha, perfil):
     senha_hash = bcrypt.hashpw(senha.encode(), bcrypt.gensalt()).decode()
@@ -35,6 +36,33 @@ def autenticar(usuario, senha):
                 "perfil": result[4]
             }
     return None
+
+def trocar_senha(usuario, senha_atual, nova_senha):
+    with engine.connect() as conn:
+        result = conn.execute(text("""
+        SELECT senha FROM usuarios WHERE usuario = :usuario
+        """), {"usuario": usuario}).fetchone()
+
+        if not result:
+            return False, "Usuário não encontrado."
+
+        senha_hash = result[0].encode()
+
+        if not bcrypt.checkpw(senha_atual.encode(), senha_hash):
+            return False, "Senha atual incorreta."
+
+        nova_hash = bcrypt.hashpw(nova_senha.encode(), bcrypt.gensalt()).decode()
+
+        conn.execute(text("""
+        UPDATE usuarios
+        SET senha = :senha
+        WHERE usuario = :usuario
+        """), {
+            "senha": nova_hash,
+            "usuario": usuario
+        })
+
+        return True, "Senha alterada com sucesso!"
 
 def tela_login():
     st.title("🔐 Login - Madoska Piedade")

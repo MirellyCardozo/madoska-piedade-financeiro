@@ -1,6 +1,7 @@
 from sqlalchemy import create_engine, text
 
-engine = create_engine("sqlite:///madoska.db")
+DB_PATH = r"sqlite:///C:/Users/mirel/OneDrive/Área de Trabalho/madoska_financeiro/madoska.db"
+engine = create_engine(DB_PATH)
 
 def criar_tabelas():
     with engine.connect() as conn:

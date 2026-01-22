@@ -2,7 +2,8 @@ import streamlit as st
 from sqlalchemy import create_engine, text
 from datetime import datetime
 
-engine = create_engine("sqlite:///madoska.db")
+DB_PATH = r"sqlite:///C:/Users/mirel/OneDrive/Área de Trabalho/madoska_financeiro/madoska.db"
+engine = create_engine(DB_PATH)
 
 CATEGORIAS = ["Sorvetes", "Descartáveis", "Guloseimas", "Limpeza"]
 
@@ -11,6 +12,7 @@ def tela_estoque():
 
     tab1, tab2, tab3 = st.tabs(["📋 Ver Estoque", "➕ Cadastrar Produto", "🔄 Atualizar Quantidade"])
 
+    # -------- VER ESTOQUE --------
     with tab1:
         with engine.connect() as conn:
             rows = conn.execute(text("SELECT * FROM estoque")).fetchall()
@@ -22,6 +24,7 @@ def tela_estoque():
         else:
             st.info("Nenhum produto cadastrado.")
 
+    # -------- CADASTRAR PRODUTO --------
     with tab2:
         produto = st.text_input("Nome do produto")
         categoria = st.selectbox("Categoria", CATEGORIAS)
@@ -45,6 +48,7 @@ def tela_estoque():
                 })
             st.success("Produto cadastrado!")
 
+    # -------- ATUALIZAR QUANTIDADE --------
     with tab3:
         with engine.connect() as conn:
             produtos = conn.execute(text("SELECT id, produto, quantidade FROM estoque")).fetchall()
