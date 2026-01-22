@@ -6,7 +6,7 @@ from estoque import tela_estoque
 from backup import backup_automatico
 import pandas as pd
 from sqlalchemy import create_engine, text
-from datetime import datetime, date, timedelta
+from datetime import date, timedelta
 
 # -----------------------------
 # BANCO AUTOMÁTICO
@@ -85,7 +85,30 @@ else:
     ])
 
 # -----------------------------
-# DASHBOARD FINANCEIRO
+# CATEGORIAS FIXAS
+# -----------------------------
+CATEGORIAS = [
+    "Insumos",
+    "Energia",
+    "Vendas",
+    "Fornecedores",
+    "Impostos",
+    "Aluguel",
+    "Funcionários",
+    "Manutenção",
+    "Outros"
+]
+
+FORMAS_PAGAMENTO = [
+    "Dinheiro",
+    "PIX",
+    "Cartão",
+    "Transferência",
+    "Boleto"
+]
+
+# -----------------------------
+# DASHBOARD
 # -----------------------------
 if menu == "📊 Dashboard":
     st.subheader("📊 Dashboard Financeiro")
@@ -133,8 +156,10 @@ elif menu == "➕ Lançar Financeiro":
     data = st.date_input("Data", value=date.today())
     tipo = st.selectbox("Tipo", ["Crédito", "Gasto"])
     descricao = st.text_input("Descrição")
-    categoria = st.text_input("Categoria (Ex: Insumos, Energia, Vendas, Fornecedores)")
-    pagamento = st.selectbox("Forma de pagamento", ["Dinheiro", "PIX", "Cartão", "Transferência"])
+
+    categoria = st.selectbox("Categoria", CATEGORIAS)
+    pagamento = st.selectbox("Forma de pagamento", FORMAS_PAGAMENTO)
+
     valor = st.number_input("Valor (R$)", min_value=0.0, format="%.2f")
     observacoes = st.text_area("Observações")
 
@@ -156,7 +181,7 @@ elif menu == "➕ Lançar Financeiro":
         st.success("Lançamento salvo com sucesso!")
 
 # -----------------------------
-# REGISTROS FINANCEIROS
+# REGISTROS
 # -----------------------------
 elif menu == "📋 Registros Financeiros":
     st.subheader("📋 Registros Financeiros")
@@ -175,7 +200,7 @@ elif menu == "📦 Estoque":
     tela_estoque()
 
 # -----------------------------
-# USUÁRIOS (ADMIN)
+# USUÁRIOS
 # -----------------------------
 elif menu == "👥 Usuários":
     st.subheader("👥 Criar Usuários")
