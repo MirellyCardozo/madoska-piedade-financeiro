@@ -181,7 +181,7 @@ elif menu == "➕ Lançar Financeiro":
         st.success("Lançamento salvo com sucesso!")
 
 # -----------------------------
-# REGISTROS
+# REGISTROS (EDITAR / EXCLUIR)
 # -----------------------------
 elif menu == "📋 Registros Financeiros":
     st.subheader("📋 Registros Financeiros")
@@ -192,6 +192,62 @@ elif menu == "📋 Registros Financeiros":
         st.info("Nenhum registro encontrado.")
     else:
         st.dataframe(df, use_container_width=True)
+
+        st.markdown("### ✏️ Editar ou 🗑️ Excluir Registro")
+
+        registro_id = st.number_input("ID do registro", min_value=1, step=1)
+
+        with engine.connect() as conn:
+            registro = conn.execute(
+                text("SELECT * FROM registros WHERE id = :id"),
+                {"id": registro_id}
+            ).fetchone()
+
+        if registro:
+            data_edit = st.date_input("Data", value=pd.to_datetime(registro[1], format="%d/%m/%Y").date())
+            tipo_edit = st.selectbox("Tipo", ["Crédito", "Gasto"], index=0 if registro[2] == "Crédito" else 1)
+            descricao_edit = st.text_input("Descrição", value=registro[3])
+            categoria_edit = st.selectbox("Categoria", CATEGORIAS, index=CATEGORIAS.index(registro[4]) if registro[4] in CATEGORIAS else 0)
+            pagamento_edit = st.selectbox("Forma de pagamento", FORMAS_PAGAMENTO, index=FORMAS_PAGAMENTO.index(registro[5]) if registro[5] in FORMAS_PAGAMENTO else 0)
+            valor_edit = st.number_input("Valor (R$)", min_value=0.0, value=float(registro[6]), format="%.2f")
+            observacoes_edit = st.text_area("Observações", value=registro[7])
+
+            col1, col2 = st.columns(2)
+
+            with col1:
+                if st.button("💾 Salvar Alterações"):
+                    with engine.begin() as conn:
+                        conn.execute(text("""
+                        UPDATE registros
+                        SET data = :d,
+                            tipo = :t,
+                            descricao = :desc,
+                            categoria = :cat,
+                            pagamento = :pag,
+                            valor = :v,
+                            observacoes = :obs
+                        WHERE id = :id
+                        """), {
+                            "d": data_edit.strftime("%d/%m/%Y"),
+                            "t": tipo_edit,
+                            "desc": descricao_edit,
+                            "cat": categoria_edit,
+                            "pag": pagamento_edit,
+                            "v": valor_edit,
+                            "obs": observacoes_edit,
+                            "id": registro_id
+                        })
+                    st.success("Registro atualizado com sucesso!")
+                    st.rerun()
+
+            with col2:
+                if st.button("🗑️ Excluir Registro"):
+                    with engine.begin() as conn:
+                        conn.execute(text("DELETE FROM registros WHERE id = :id"), {"id": registro_id})
+                    st.warning("Registro excluído!")
+                    st.rerun()
+        else:
+            st.info("Digite um ID válido para editar ou excluir.")
 
 # -----------------------------
 # ESTOQUE
