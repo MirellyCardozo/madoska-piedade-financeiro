@@ -1,57 +1,81 @@
 import os
 import streamlit as st
 from database import criar_tabelas
-from auth import tela_login, criar_usuario, trocar_senha, autenticar
+from auth import criar_usuario, trocar_senha, autenticar
 from estoque import tela_estoque
 from backup import backup_automatico
 import pandas as pd
 from sqlalchemy import create_engine, text
+from datetime import datetime, date, timedelta
 
-# Caminho automático do banco
+# -----------------------------
+# BANCO AUTOMÁTICO
+# -----------------------------
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 DB_FILE = os.path.join(BASE_DIR, "madoska.db")
 engine = create_engine(f"sqlite:///{DB_FILE}")
 
-# Inicialização
+# -----------------------------
+# INICIALIZAÇÃO
+# -----------------------------
 criar_tabelas()
 backup_automatico()
 
-# ---------------------------
-# AUTO-CREATE ADMIN (SE NÃO EXISTIR USUÁRIO)
-# ---------------------------
+# -----------------------------
+# AUTO ADMIN SE VAZIO
+# -----------------------------
 def garantir_admin():
-    with engine.connect() as conn:
+    with engine.begin() as conn:
         total = conn.execute(text("SELECT COUNT(*) FROM usuarios")).fetchone()[0]
         if total == 0:
             criar_usuario("Admin", "admin", "admin123", "admin")
 
 garantir_admin()
 
-# Sessão
+# -----------------------------
+# SESSÃO
+# -----------------------------
 if "usuario" not in st.session_state:
     st.session_state.usuario = None
 
-# ---------------------------
+# -----------------------------
 # LOGIN
-# ---------------------------
+# -----------------------------
 if not st.session_state.usuario:
-    tela_login()
+    st.title("🔐 Login - Madoska Piedade")
+
+    usuario = st.text_input("Usuário")
+    senha = st.text_input("Senha", type="password")
+
+    if st.button("Entrar"):
+        user = autenticar(usuario, senha)
+        if user:
+            st.session_state.usuario = user
+            st.success(f"Bem-vinda, {user['nome']}!")
+            st.rerun()
+        else:
+            st.error("Usuário ou senha incorretos")
+
     st.stop()
 
 user = st.session_state.usuario
 
-# ---------------------------
-# SISTEMA PRINCIPAL
-# ---------------------------
+# -----------------------------
+# TELA PRINCIPAL
+# -----------------------------
 st.set_page_config(page_title="Madoska Piedade", layout="wide")
 st.title(f"🍨 Madoska Piedade — Bem-vinda, {user['nome']}")
 
-# MENU POR PERFIL
+# -----------------------------
+# MENU
+# -----------------------------
 if user["perfil"] == "admin":
     menu = st.sidebar.selectbox("Menu", [
+        "📊 Dashboard",
+        "➕ Lançar Financeiro",
+        "📋 Registros Financeiros",
         "📦 Estoque",
         "👥 Usuários",
-        "📊 Financeiro",
         "🔐 Trocar Senha"
     ])
 else:
@@ -60,11 +84,99 @@ else:
         "🔐 Trocar Senha"
     ])
 
-# -------- ESTOQUE --------
-if menu == "📦 Estoque":
+# -----------------------------
+# DASHBOARD FINANCEIRO
+# -----------------------------
+if menu == "📊 Dashboard":
+    st.subheader("📊 Dashboard Financeiro")
+
+    df = pd.read_sql("SELECT * FROM registros", engine)
+
+    if df.empty:
+        st.info("Nenhum lançamento financeiro ainda.")
+    else:
+        df["data"] = pd.to_datetime(df["data"], format="%d/%m/%Y")
+
+        hoje = date.today()
+        inicio_semana = hoje - timedelta(days=hoje.weekday())
+        inicio_mes = hoje.replace(day=1)
+
+        df_dia = df[df["data"].dt.date == hoje]
+        df_semana = df[df["data"].dt.date >= inicio_semana]
+        df_mes = df[df["data"].dt.date >= inicio_mes]
+
+        def resumo(df_temp):
+            creditos = df_temp[df_temp["tipo"] == "Crédito"]["valor"].sum()
+            gastos = df_temp[df_temp["tipo"] == "Gasto"]["valor"].sum()
+            lucro = creditos - gastos
+            return creditos, gastos, lucro
+
+        c1, g1, l1 = resumo(df_dia)
+        c2, g2, l2 = resumo(df_semana)
+        c3, g3, l3 = resumo(df_mes)
+
+        col1, col2, col3 = st.columns(3)
+
+        with col1:
+            st.metric("📅 Hoje - Lucro", f"R$ {l1:.2f}", f"Créditos: R$ {c1:.2f}")
+        with col2:
+            st.metric("📆 Semana - Lucro", f"R$ {l2:.2f}", f"Gastos: R$ {g2:.2f}")
+        with col3:
+            st.metric("🗓️ Mês - Lucro", f"R$ {l3:.2f}", f"Créditos: R$ {c3:.2f}")
+
+# -----------------------------
+# LANÇAR FINANCEIRO
+# -----------------------------
+elif menu == "➕ Lançar Financeiro":
+    st.subheader("➕ Novo Lançamento")
+
+    data = st.date_input("Data", value=date.today())
+    tipo = st.selectbox("Tipo", ["Crédito", "Gasto"])
+    descricao = st.text_input("Descrição")
+    categoria = st.text_input("Categoria (Ex: Insumos, Energia, Vendas, Fornecedores)")
+    pagamento = st.selectbox("Forma de pagamento", ["Dinheiro", "PIX", "Cartão", "Transferência"])
+    valor = st.number_input("Valor (R$)", min_value=0.0, format="%.2f")
+    observacoes = st.text_area("Observações")
+
+    if st.button("Salvar Lançamento"):
+        with engine.begin() as conn:
+            conn.execute(text("""
+            INSERT INTO registros
+            (data, tipo, descricao, categoria, pagamento, valor, observacoes)
+            VALUES (:d, :t, :desc, :cat, :pag, :v, :obs)
+            """), {
+                "d": data.strftime("%d/%m/%Y"),
+                "t": tipo,
+                "desc": descricao,
+                "cat": categoria,
+                "pag": pagamento,
+                "v": valor,
+                "obs": observacoes
+            })
+        st.success("Lançamento salvo com sucesso!")
+
+# -----------------------------
+# REGISTROS FINANCEIROS
+# -----------------------------
+elif menu == "📋 Registros Financeiros":
+    st.subheader("📋 Registros Financeiros")
+
+    df = pd.read_sql("SELECT * FROM registros ORDER BY id DESC", engine)
+
+    if df.empty:
+        st.info("Nenhum registro encontrado.")
+    else:
+        st.dataframe(df, use_container_width=True)
+
+# -----------------------------
+# ESTOQUE
+# -----------------------------
+elif menu == "📦 Estoque":
     tela_estoque()
 
-# -------- USUÁRIOS (ADMIN) --------
+# -----------------------------
+# USUÁRIOS (ADMIN)
+# -----------------------------
 elif menu == "👥 Usuários":
     st.subheader("👥 Criar Usuários")
 
@@ -73,20 +185,16 @@ elif menu == "👥 Usuários":
     senha = st.text_input("Senha", type="password")
     perfil = st.selectbox("Perfil", ["admin", "estoque"])
 
-    if st.button("Criar"):
+    if st.button("Criar Usuário"):
         try:
             criar_usuario(nome, usuario, senha, perfil)
             st.success("Usuário criado com sucesso!")
         except Exception:
             st.error("Erro ao criar usuário. Login pode já existir.")
 
-# -------- FINANCEIRO --------
-elif menu == "📊 Financeiro":
-    st.subheader("📊 Financeiro")
-    df = pd.read_sql("SELECT * FROM registros", engine)
-    st.dataframe(df)
-
-# -------- TROCAR SENHA --------
+# -----------------------------
+# TROCAR SENHA
+# -----------------------------
 elif menu == "🔐 Trocar Senha":
     st.subheader("🔐 Trocar Minha Senha")
 
