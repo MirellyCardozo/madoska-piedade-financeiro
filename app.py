@@ -5,7 +5,7 @@ from auth import tela_login, criar_usuario, trocar_senha, autenticar
 from estoque import tela_estoque
 from backup import backup_automatico
 import pandas as pd
-from sqlalchemy import create_engine
+from sqlalchemy import create_engine, text
 
 # Caminho automático do banco
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -16,62 +16,33 @@ engine = create_engine(f"sqlite:///{DB_FILE}")
 criar_tabelas()
 backup_automatico()
 
+# ---------------------------
+# AUTO-CREATE ADMIN (SE NÃO EXISTIR USUÁRIO)
+# ---------------------------
+def garantir_admin():
+    with engine.connect() as conn:
+        total = conn.execute(text("SELECT COUNT(*) FROM usuarios")).fetchone()[0]
+        if total == 0:
+            criar_usuario("Admin", "admin", "admin123", "admin")
+
+garantir_admin()
+
 # Sessão
 if "usuario" not in st.session_state:
     st.session_state.usuario = None
 
 # ---------------------------
-# LOGIN / SETUP INICIAL
+# LOGIN
 # ---------------------------
 if not st.session_state.usuario:
-    st.title("🔐 Login - Madoska Piedade")
-
-    st.info("Se for o primeiro acesso na nuvem, crie o ADMIN abaixo. Depois faça login normalmente.")
-
-    # --- SETUP ADMIN ---
-    st.subheader("🛠️ Criar ADMIN inicial (apenas na primeira vez)")
-
-    setup_nome = st.text_input("Nome (ADMIN inicial)")
-    setup_user = st.text_input("Usuário (login ADMIN)")
-    setup_senha = st.text_input("Senha ADMIN", type="password")
-
-    col1, col2 = st.columns(2)
-
-    with col1:
-        if st.button("Criar ADMIN"):
-            try:
-                if setup_nome and setup_user and setup_senha:
-                    criar_usuario(setup_nome, setup_user, setup_senha, "admin")
-                    st.success("ADMIN criado com sucesso! Agora faça login abaixo.")
-                else:
-                    st.error("Preencha todos os campos do ADMIN.")
-            except Exception:
-                st.error("Erro ao criar usuário. Talvez esse login já exista.")
-
-    st.markdown("---")
-
-    # --- LOGIN NORMAL ---
-    st.subheader("🔐 Entrar no sistema")
-
-    usuario = st.text_input("Usuário")
-    senha = st.text_input("Senha", type="password")
-
-    if st.button("Entrar"):
-        user = autenticar(usuario, senha)
-        if user:
-            st.session_state.usuario = user
-            st.success(f"Bem-vinda, {user['nome']}!")
-            st.rerun()
-        else:
-            st.error("Usuário ou senha incorretos")
-
+    tela_login()
     st.stop()
+
+user = st.session_state.usuario
 
 # ---------------------------
 # SISTEMA PRINCIPAL
 # ---------------------------
-user = st.session_state.usuario
-
 st.set_page_config(page_title="Madoska Piedade", layout="wide")
 st.title(f"🍨 Madoska Piedade — Bem-vinda, {user['nome']}")
 
