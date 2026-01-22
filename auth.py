@@ -1,9 +1,12 @@
+import os
 import streamlit as st
 from sqlalchemy import create_engine, text
 import bcrypt
 
-DB_PATH = r"sqlite:///C:/Users/mirel/OneDrive/Área de Trabalho/madoska_financeiro/madoska.db"
-engine = create_engine(DB_PATH)
+# Caminho automático do banco
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+DB_FILE = os.path.join(BASE_DIR, "madoska.db")
+engine = create_engine(f"sqlite:///{DB_FILE}")
 
 def criar_usuario(nome, usuario, senha, perfil):
     senha_hash = bcrypt.hashpw(senha.encode(), bcrypt.gensalt()).decode()

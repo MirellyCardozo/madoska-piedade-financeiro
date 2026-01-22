@@ -1,3 +1,4 @@
+import os
 import streamlit as st
 from database import criar_tabelas
 from auth import tela_login, criar_usuario, trocar_senha
@@ -6,12 +7,16 @@ from backup import backup_automatico
 import pandas as pd
 from sqlalchemy import create_engine
 
-DB_PATH = r"sqlite:///C:/Users/mirel/OneDrive/Área de Trabalho/madoska_financeiro/madoska.db"
-engine = create_engine(DB_PATH)
+# Caminho automático do banco
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+DB_FILE = os.path.join(BASE_DIR, "madoska.db")
+engine = create_engine(f"sqlite:///{DB_FILE}")
 
+# Inicialização
 criar_tabelas()
 backup_automatico()
 
+# Sessão
 if "usuario" not in st.session_state:
     st.session_state.usuario = None
 
