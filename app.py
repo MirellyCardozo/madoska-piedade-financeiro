@@ -1,7 +1,7 @@
 import os
 import streamlit as st
 from database import criar_tabelas
-from auth import tela_login, criar_usuario, trocar_senha
+from auth import tela_login, criar_usuario, trocar_senha, autenticar
 from estoque import tela_estoque
 from backup import backup_automatico
 import pandas as pd
@@ -20,11 +20,56 @@ backup_automatico()
 if "usuario" not in st.session_state:
     st.session_state.usuario = None
 
-# LOGIN
+# ---------------------------
+# LOGIN / SETUP INICIAL
+# ---------------------------
 if not st.session_state.usuario:
-    tela_login()
+    st.title("🔐 Login - Madoska Piedade")
+
+    st.info("Se for o primeiro acesso na nuvem, crie o ADMIN abaixo. Depois faça login normalmente.")
+
+    # --- SETUP ADMIN ---
+    st.subheader("🛠️ Criar ADMIN inicial (apenas na primeira vez)")
+
+    setup_nome = st.text_input("Nome (ADMIN inicial)")
+    setup_user = st.text_input("Usuário (login ADMIN)")
+    setup_senha = st.text_input("Senha ADMIN", type="password")
+
+    col1, col2 = st.columns(2)
+
+    with col1:
+        if st.button("Criar ADMIN"):
+            try:
+                if setup_nome and setup_user and setup_senha:
+                    criar_usuario(setup_nome, setup_user, setup_senha, "admin")
+                    st.success("ADMIN criado com sucesso! Agora faça login abaixo.")
+                else:
+                    st.error("Preencha todos os campos do ADMIN.")
+            except Exception:
+                st.error("Erro ao criar usuário. Talvez esse login já exista.")
+
+    st.markdown("---")
+
+    # --- LOGIN NORMAL ---
+    st.subheader("🔐 Entrar no sistema")
+
+    usuario = st.text_input("Usuário")
+    senha = st.text_input("Senha", type="password")
+
+    if st.button("Entrar"):
+        user = autenticar(usuario, senha)
+        if user:
+            st.session_state.usuario = user
+            st.success(f"Bem-vinda, {user['nome']}!")
+            st.rerun()
+        else:
+            st.error("Usuário ou senha incorretos")
+
     st.stop()
 
+# ---------------------------
+# SISTEMA PRINCIPAL
+# ---------------------------
 user = st.session_state.usuario
 
 st.set_page_config(page_title="Madoska Piedade", layout="wide")
@@ -58,10 +103,13 @@ elif menu == "👥 Usuários":
     perfil = st.selectbox("Perfil", ["admin", "estoque"])
 
     if st.button("Criar"):
-        criar_usuario(nome, usuario, senha, perfil)
-        st.success("Usuário criado com sucesso!")
+        try:
+            criar_usuario(nome, usuario, senha, perfil)
+            st.success("Usuário criado com sucesso!")
+        except Exception:
+            st.error("Erro ao criar usuário. Login pode já existir.")
 
-# -------- FINANCEIRO (VISUALIZAÇÃO) --------
+# -------- FINANCEIRO --------
 elif menu == "📊 Financeiro":
     st.subheader("📊 Financeiro")
     df = pd.read_sql("SELECT * FROM registros", engine)
