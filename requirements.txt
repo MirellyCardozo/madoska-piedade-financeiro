@@ -2,6 +2,5 @@ streamlit
 pandas
 sqlalchemy
 fpdf
-psycopg2-binary
 matplotlib
-pytz
+psycopg2-binary
