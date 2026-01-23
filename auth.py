@@ -1,5 +1,7 @@
 from database import executar
 import hashlib
+import bcrypt
+
 
 def hash_senha(senha):
     return hashlib.sha256(senha.encode()).hexdigest()
@@ -31,3 +33,29 @@ def autenticar(usuario, senha):
     }).fetchone()
 
     return result
+from sqlalchemy import text
+import streamlit as st
+from database import engine
+import bcrypt
+
+
+def trocar_senha(usuario, nova_senha):
+    senha_hash = bcrypt.hashpw(
+        nova_senha.encode(),
+        bcrypt.gensalt()
+    ).decode()
+
+    with engine.begin() as conn:
+        conn.execute(
+            text("""
+            UPDATE usuarios
+            SET senha = :senha
+            WHERE usuario = :usuario
+            """),
+            {
+                "senha": senha_hash,
+                "usuario": usuario
+            }
+        )
+
+    return True
