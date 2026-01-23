@@ -1,13 +1,12 @@
-from database import executar
-import hashlib
+import streamlit as st
 import bcrypt
+from database import executar
 
-
-def hash_senha(senha):
-    return hashlib.sha256(senha.encode()).hexdigest()
-
-def criar_usuario(nome, usuario, senha, perfil):
-    senha_hash = hash_senha(senha)
+# ==========================
+# CRIAR USUÁRIO
+# ==========================
+def criar_usuario(nome, usuario, senha, perfil="admin"):
+    senha_hash = bcrypt.hashpw(senha.encode(), bcrypt.gensalt()).decode()
 
     executar("""
         INSERT INTO usuarios (nome, usuario, senha, perfil)
@@ -19,43 +18,44 @@ def criar_usuario(nome, usuario, senha, perfil):
         "perfil": perfil
     })
 
-def autenticar(usuario, senha):
-    senha_hash = hash_senha(senha)
-
+# ==========================
+# AUTENTICAR LOGIN
+# ==========================
+def autenticar(usuario, senha_digitada):
     result = executar("""
-        SELECT id, nome, usuario, perfil
+        SELECT id, nome, usuario, senha, perfil
         FROM usuarios
         WHERE usuario = :usuario
-        AND senha = :senha
     """, {
-        "usuario": usuario,
-        "senha": senha_hash
+        "usuario": usuario
     }).fetchone()
 
-    return result
-from sqlalchemy import text
-import streamlit as st
-from database import engine
-import bcrypt
+    if not result:
+        return None
 
+    senha_hash = result[3].encode()
 
+    if bcrypt.checkpw(senha_digitada.encode(), senha_hash):
+        return {
+            "id": result[0],
+            "nome": result[1],
+            "usuario": result[2],
+            "perfil": result[4]
+        }
+
+    return None
+
+# ==========================
+# TROCAR SENHA
+# ==========================
 def trocar_senha(usuario, nova_senha):
-    senha_hash = bcrypt.hashpw(
-        nova_senha.encode(),
-        bcrypt.gensalt()
-    ).decode()
+    nova_hash = bcrypt.hashpw(nova_senha.encode(), bcrypt.gensalt()).decode()
 
-    with engine.begin() as conn:
-        conn.execute(
-            text("""
-            UPDATE usuarios
-            SET senha = :senha
-            WHERE usuario = :usuario
-            """),
-            {
-                "senha": senha_hash,
-                "usuario": usuario
-            }
-        )
-
-    return True
+    executar("""
+        UPDATE usuarios
+        SET senha = :senha
+        WHERE usuario = :usuario
+    """, {
+        "senha": nova_hash,
+        "usuario": usuario
+    })
