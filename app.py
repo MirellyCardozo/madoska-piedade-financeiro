@@ -23,6 +23,27 @@ criar_tabelas()
 backup_automatico()
 
 # -----------------------------
+# BOTÃO PARA BAIXAR BANCO DA NUVEM
+# -----------------------------
+
+import io
+
+def botao_backup_download():
+    try:
+        if os.path.exists(DB_FILE):
+            with open(DB_FILE, "rb") as f:
+                data = f.read()
+
+            st.sidebar.download_button(
+                label="📥 Baixar base de dados",
+                data=data,
+                file_name="madoska.db",
+                mime="application/octet-stream"
+            )
+    except Exception as e:
+        st.sidebar.error("Erro ao preparar backup")
+
+# -----------------------------
 # AUTO ADMIN
 # -----------------------------
 def garantir_admin():
@@ -76,6 +97,9 @@ with col2:
 # -----------------------------
 # MENU
 # -----------------------------
+
+botao_backup_download()
+
 if user["perfil"] == "admin":
     menu = st.sidebar.selectbox("Menu", [
         "📊 Dashboard",
@@ -95,7 +119,7 @@ else:
 # LISTAS FIXAS
 # -----------------------------
 CATEGORIAS = [
-    "Insumos", "Energia", "Vendas", "Fornecedores",
+    "Insumos", "Energia", "Vendas", "Marketing",
     "Impostos", "Aluguel", "Funcionários",
     "Manutenção", "Outros"
 ]
