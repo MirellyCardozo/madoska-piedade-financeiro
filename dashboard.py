@@ -1,133 +1,140 @@
 import streamlit as st
 import pandas as pd
 import matplotlib.pyplot as plt
+from fpdf import FPDF
 from datetime import datetime
 import pytz
-from fpdf import FPDF
 
 from database import executar
 
-# ==========================
-# CONFIG FUSO HORÁRIO
-# ==========================
-FUSO_BR = pytz.timezone("America/Sao_Paulo")
+# Fuso horário Brasil
+TZ = pytz.timezone("America/Sao_Paulo")
 
+# ======================
+# BUSCAR DADOS
+# ======================
+def carregar_gastos():
+    sql = """
+    SELECT
+        data,
+        categoria,
+        valor
+    FROM registros
+    WHERE tipo = 'Débito'
+    """
+    result = executar(sql).fetchall()
 
-def agora_br():
-    return datetime.now(FUSO_BR)
+    if not result:
+        return pd.DataFrame(columns=["data", "categoria", "valor"])
 
+    df = pd.DataFrame(result, columns=["data", "categoria", "valor"])
+    df["data"] = pd.to_datetime(df["data"])
+    df["valor"] = df["valor"].astype(float)
 
-# ==========================
-# BUSCA DADOS
-# ==========================
-def carregar_registros():
-    result = executar("""
-        SELECT data, descricao, categoria, pagamento, valor
-        FROM registros
-        ORDER BY data
-    """).fetchall()
+    return df
 
-    return pd.DataFrame(result, columns=[
-        "Data", "Descrição", "Categoria", "Pagamento", "Valor"
-    ])
-
-
-# ==========================
+# ======================
 # GERAR PDF
-# ==========================
-def gerar_pdf(df, mes, ano):
+# ======================
+def gerar_pdf(df, mes, ano, usuario):
     pdf = FPDF()
     pdf.set_auto_page_break(auto=True, margin=15)
     pdf.add_page()
 
-    pdf.set_font("Arial", "B", 14)
-    pdf.cell(0, 10, f"Relatório Financeiro - {mes}/{ano}", ln=True)
+    pdf.set_font("Arial", "B", 16)
+    pdf.cell(0, 10, "Relatório Financeiro Mensal", ln=True)
 
-    pdf.set_font("Arial", size=10)
-    pdf.ln(5)
-
-    total = 0
-
-    for _, row in df.iterrows():
-        linha = f"{row['Data']} | {row['Categoria']} | {row['Descrição']} | R$ {row['Valor']:.2f}"
-        pdf.multi_cell(0, 8, linha)
-        total += float(row["Valor"])
+    pdf.set_font("Arial", "", 12)
+    pdf.cell(0, 10, f"Usuário: {usuario}", ln=True)
+    pdf.cell(0, 10, f"Mês/Ano: {mes}/{ano}", ln=True)
+    pdf.cell(0, 10, f"Gerado em: {datetime.now(TZ).strftime('%d/%m/%Y %H:%M:%S')}", ln=True)
 
     pdf.ln(5)
     pdf.set_font("Arial", "B", 12)
-    pdf.cell(0, 10, f"TOTAL DO MÊS: R$ {total:.2f}", ln=True)
+    pdf.cell(80, 10, "Categoria")
+    pdf.cell(40, 10, "Total (R$)")
+    pdf.ln()
 
-    nome_arquivo = f"relatorio_{mes}_{ano}.pdf"
-    pdf.output(nome_arquivo)
+    resumo = df.groupby("categoria")["valor"].sum()
 
-    return nome_arquivo
+    pdf.set_font("Arial", "", 12)
+    for cat, total in resumo.items():
+        pdf.cell(80, 10, str(cat))
+        pdf.cell(40, 10, f"{total:.2f}")
+        pdf.ln()
 
+    file_name = f"relatorio_{mes}_{ano}.pdf"
+    pdf.output(file_name)
 
-# ==========================
+    return file_name
+
+# ======================
 # TELA DASHBOARD
-# ==========================
+# ======================
 def tela_dashboard(usuario):
-    st.title("📊 Dashboard Financeiro - Madoska Piedade")
+    st.title("📊 Dashboard Financeiro")
 
-    agora = agora_br()
-    st.caption(f"🕒 Horário atual: {agora.strftime('%d/%m/%Y %H:%M:%S')}")
-
-    df = carregar_registros()
+    df = carregar_gastos()
 
     if df.empty:
-        st.warning("Nenhum dado encontrado")
+        st.info("Nenhum gasto registrado ainda.")
         return
 
-    df["Data"] = pd.to_datetime(df["Data"], dayfirst=True)
-
-    # ==========================
+    # ======================
     # FILTRO MÊS / ANO
-    # ==========================
+    # ======================
     col1, col2 = st.columns(2)
 
     with col1:
-        mes = st.selectbox("Mês", list(range(1, 13)), index=agora.month - 1)
+        mes = st.selectbox("Mês", list(range(1, 13)), index=datetime.now().month - 1)
 
     with col2:
-        ano = st.selectbox("Ano", sorted(df["Data"].dt.year.unique()), index=0)
+        ano = st.selectbox("Ano", sorted(df["data"].dt.year.unique(), reverse=True))
 
     df_filtrado = df[
-        (df["Data"].dt.month == mes) &
-        (df["Data"].dt.year == ano)
+        (df["data"].dt.month == mes) &
+        (df["data"].dt.year == ano)
     ]
 
-    st.subheader("📈 Gastos por Categoria")
-
     if df_filtrado.empty:
-        st.info("Nenhum dado para este período")
+        st.warning("Sem dados para este mês.")
         return
 
-    grafico = df_filtrado.groupby("Categoria")["Valor"].sum()
+    # ======================
+    # RESUMO
+    # ======================
+    total = df_filtrado["valor"].sum()
+    st.metric("💰 Total de Gastos no Mês", f"R$ {total:.2f}")
+
+    # ======================
+    # GRÁFICO
+    # ======================
+    resumo = df_filtrado.groupby("categoria")["valor"].sum()
 
     fig, ax = plt.subplots()
-    grafico.plot(kind="bar", ax=ax)
+    resumo.plot(kind="bar", ax=ax)
+    ax.set_title("Gastos por Categoria")
     ax.set_ylabel("Valor (R$)")
     ax.set_xlabel("Categoria")
-    ax.set_title("Total por Categoria")
 
     st.pyplot(fig)
 
-    # ==========================
+    # ======================
     # TABELA
-    # ==========================
-    st.subheader("📋 Registros do Mês")
-    st.dataframe(df_filtrado, use_container_width=True)
+    # ======================
+    st.subheader("📋 Lançamentos do Mês")
+    st.dataframe(df_filtrado.sort_values("data", ascending=False))
 
-    # ==========================
-    # EXPORTAR PDF
-    # ==========================
+    # ======================
+    # PDF
+    # ======================
     if st.button("📄 Exportar Relatório em PDF"):
-        arquivo = gerar_pdf(df_filtrado, mes, ano)
+        arquivo = gerar_pdf(df_filtrado, mes, ano, usuario)
 
         with open(arquivo, "rb") as f:
             st.download_button(
-                "⬇️ Baixar PDF",
-                f,
+                label="⬇️ Baixar PDF",
+                data=f,
                 file_name=arquivo,
                 mime="application/pdf"
             )
