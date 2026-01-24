@@ -4,3 +4,4 @@ sqlalchemy
 fpdf
 matplotlib
 psycopg2-binary
+pytz
