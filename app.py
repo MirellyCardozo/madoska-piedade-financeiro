@@ -1,12 +1,14 @@
 import streamlit as st
 from datetime import datetime
+from dashboard import tela_dashboard
 import pytz
-
 from database import criar_tabelas
 from auth import criar_usuario, autenticar
 from estoque import tela_estoque
 from dashboard import tela_dashboard
 from backup import backup_automatico
+from lancamentos import tela_lancamentos
+from usuarios import tela_usuarios
 
 # ======================
 # CONFIGURAÇÃO INICIAL
@@ -40,25 +42,29 @@ def tela_login():
 # TELA PRINCIPAL
 # ======================
 def tela_principal():
-    now = datetime.now(TZ).strftime("%d/%m/%Y %H:%M:%S")
-
-    st.sidebar.markdown(f"👤 Usuário: **{st.session_state['user']}**")
-    st.sidebar.markdown(f"🕒 Hora BR: **{now}**")
+    st.sidebar.markdown(f"👤 Usuário: {st.session_state['user']['nome']}")
+    st.sidebar.markdown(f"🕒 Hora BR: {datetime.now(pytz.timezone('America/Sao_Paulo')).strftime('%d/%m/%Y %H:%M:%S')}")
 
     menu = st.sidebar.radio(
         "Menu",
-        ["📊 Dashboard", "📦 Estoque", "🚪 Sair"]
+        ["📊 Dashboard", "💰 Lançamentos", "📦 Estoque", "👥 Usuários", "🚪 Sair"]
     )
 
     if menu == "📊 Dashboard":
-        tela_dashboard(st.session_state["user"])
+        tela_dashboard(st.session_state["user"]["nome"])
+
+    elif menu == "💰 Lançamentos":
+        tela_lancamentos()  # SEU CADASTRO/EDITAR/EXCLUIR GASTOS
 
     elif menu == "📦 Estoque":
         tela_estoque()
 
+    elif menu == "👥 Usuários":
+        tela_usuarios()  # CRIAR / ALTERAR SENHA
+
     elif menu == "🚪 Sair":
-        del st.session_state["user"]
-        st.rerun()
+        st.session_state.clear()
+        st.experimental_rerun()
 
 # ======================
 # CONTROLE SESSÃO
