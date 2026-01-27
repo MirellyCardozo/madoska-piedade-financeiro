@@ -5,7 +5,7 @@ from database import executar
 # CONFIGURAÇÃO DE HASH
 # ==========================
 pwd_context = CryptContext(
-    schemes=["pbkdf2_sha256"],
+    schemes=["pbkdf2_sha256", "bcrypt"],
     deprecated="auto"
 )
 
@@ -16,7 +16,27 @@ def hash_senha(senha: str) -> str:
     return pwd_context.hash(senha)
 
 def verificar_senha(senha_digitada: str, senha_hash: str) -> bool:
-    return pwd_context.verify(senha_digitada, senha_hash)
+    try:
+        return pwd_context.verify(senha_digitada, senha_hash)
+    except Exception:
+        return False
+
+# ==========================
+# MIGRAR HASH AUTOMATICAMENTE
+# ==========================
+def atualizar_hash(usuario, senha_digitada):
+    novo_hash = hash_senha(senha_digitada)
+
+    sql = """
+    UPDATE usuarios
+    SET senha = :senha
+    WHERE usuario = :usuario
+    """
+
+    executar(sql, {
+        "senha": novo_hash,
+        "usuario": usuario
+    })
 
 # ==========================
 # CRIAR USUÁRIO
@@ -55,7 +75,13 @@ def autenticar(usuario, senha):
 
     senha_hash = result[3]
 
+    # Verifica senha
     if verificar_senha(senha, senha_hash):
+
+        # Se o hash for antigo, atualiza automaticamente
+        if pwd_context.needs_update(senha_hash):
+            atualizar_hash(usuario, senha)
+
         return {
             "id": result[0],
             "nome": result[1],
