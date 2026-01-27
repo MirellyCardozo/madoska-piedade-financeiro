@@ -4,3 +4,5 @@ sqlalchemy
 fpdf
 passlib[bcrypt]
 psycopg2-binary
+matplotlib
+pytz
