@@ -7,129 +7,185 @@ import pytz
 
 from database import executar
 
-# ==========================
-# HORA BR
-# ==========================
-def agora_br():
-    tz = pytz.timezone("America/Sao_Paulo")
-    return datetime.now(tz)
+TIMEZONE = pytz.timezone("America/Sao_Paulo")
 
 # ==========================
-# BUSCAR GASTOS
+# TABELA NO BANCO (EXECUTA UMA VEZ)
 # ==========================
-def buscar_gastos():
-    sql = """
-    SELECT 
-        data,
-        categoria,
-        descricao,
-        valor
-    FROM gastos
-    ORDER BY data DESC
-    """
-    result = executar(sql).fetchall()
+def criar_tabela_lancamentos():
+    executar("""
+    CREATE TABLE IF NOT EXISTS lancamentos (
+        id SERIAL PRIMARY KEY,
+        data DATE NOT NULL,
+        categoria TEXT NOT NULL,
+        descricao TEXT NOT NULL,
+        valor NUMERIC(10,2) NOT NULL,
+        usuario TEXT NOT NULL
+    )
+    """)
 
-    return pd.DataFrame(result, columns=["Data", "Categoria", "Descrição", "Valor"])
+# ==========================
+# BUSCAR DADOS
+# ==========================
+def buscar_lancamentos(usuario):
+    result = executar("""
+        SELECT id, data, categoria, descricao, valor
+        FROM lancamentos
+        WHERE usuario = :usuario
+        ORDER BY data DESC
+    """, {"usuario": usuario}).fetchall()
+
+    return pd.DataFrame(result, columns=["id", "data", "categoria", "descricao", "valor"])
+
+# ==========================
+# INSERIR
+# ==========================
+def inserir_lancamento(data, categoria, descricao, valor, usuario):
+    executar("""
+        INSERT INTO lancamentos (data, categoria, descricao, valor, usuario)
+        VALUES (:data, :categoria, :descricao, :valor, :usuario)
+    """, {
+        "data": data,
+        "categoria": categoria,
+        "descricao": descricao,
+        "valor": valor,
+        "usuario": usuario
+    })
+
+# ==========================
+# EXCLUIR
+# ==========================
+def excluir_lancamento(lancamento_id):
+    executar("""
+        DELETE FROM lancamentos
+        WHERE id = :id
+    """, {"id": lancamento_id})
 
 # ==========================
 # GERAR PDF
 # ==========================
-def gerar_pdf(df, mes, ano):
+def gerar_pdf(df, mes, ano, usuario):
     pdf = FPDF()
-    pdf.set_auto_page_break(auto=True, margin=15)
     pdf.add_page()
 
-    pdf.set_font("Arial", "B", 16)
-    pdf.cell(0, 10, f"Relatório Financeiro - {mes}/{ano}", ln=True)
+    pdf.set_font("Arial", "B", 14)
+    pdf.cell(0, 10, f"Relatório Financeiro - {usuario}", ln=True)
+    pdf.cell(0, 10, f"Mês: {mes}/{ano}", ln=True)
 
-    pdf.set_font("Arial", "", 10)
-    pdf.cell(0, 10, f"Gerado em: {agora_br().strftime('%d/%m/%Y %H:%M:%S')}", ln=True)
-
+    pdf.set_font("Arial", size=10)
     pdf.ln(5)
-
-    total = 0
 
     for _, row in df.iterrows():
-        linha = f"{row['Data']} | {row['Categoria']} | {row['Descrição']} | R$ {row['Valor']:.2f}"
-        pdf.cell(0, 8, linha, ln=True)
-        total += row["Valor"]
+        linha = f"{row['data']} | {row['categoria']} | {row['descricao']} | R$ {row['valor']}"
+        pdf.multi_cell(0, 8, linha)
 
-    pdf.ln(5)
-    pdf.set_font("Arial", "B", 12)
-    pdf.cell(0, 10, f"TOTAL DO MÊS: R$ {total:.2f}", ln=True)
+    nome_arquivo = f"relatorio_{usuario}_{mes}_{ano}.pdf"
+    pdf.output(nome_arquivo)
 
-    arquivo = f"relatorio_{mes}_{ano}.pdf"
-    pdf.output(arquivo)
-
-    return arquivo
+    return nome_arquivo
 
 # ==========================
-# TELA DASHBOARD
+# DASHBOARD PRINCIPAL
 # ==========================
 def tela_dashboard(usuario):
+    criar_tabela_lancamentos()
+
     st.title("📊 Dashboard Financeiro")
 
-    st.info(f"Usuário: {usuario}")
-    st.caption(f"Hora BR: {agora_br().strftime('%d/%m/%Y %H:%M:%S')}")
+    agora = datetime.now(TIMEZONE).strftime("%d/%m/%Y %H:%M:%S")
+    st.caption(f"Usuário: {usuario} | Hora BR: {agora}")
 
-    df = buscar_gastos()
+    # ==========================
+    # FORMULÁRIO DE LANÇAMENTO
+    # ==========================
+    st.subheader("➕ Novo Lançamento")
 
-    if df.empty:
-        st.warning("Nenhum gasto registrado ainda.")
-        return
-
-    # =====================
-    # FILTRO MÊS / ANO
-    # =====================
     col1, col2 = st.columns(2)
 
     with col1:
-        mes = st.selectbox("Mês", list(range(1, 13)), index=agora_br().month - 1)
+        data = st.date_input("Data", datetime.now(TIMEZONE))
+        categoria = st.text_input("Categoria")
 
     with col2:
-        ano = st.selectbox("Ano", [agora_br().year - 1, agora_br().year, agora_br().year + 1])
+        descricao = st.text_input("Descrição")
+        valor = st.number_input("Valor (R$)", min_value=0.0, step=0.01)
 
-    df["Data"] = pd.to_datetime(df["Data"])
-    df_filtrado = df[
-        (df["Data"].dt.month == mes) &
-        (df["Data"].dt.year == ano)
-    ]
+    if st.button("Salvar Lançamento"):
+        if categoria and descricao and valor > 0:
+            inserir_lancamento(data, categoria, descricao, valor, usuario)
+            st.success("Lançamento salvo com sucesso!")
+            st.rerun()
+        else:
+            st.warning("Preencha todos os campos corretamente.")
 
-    # =====================
+    # ==========================
     # TABELA
-    # =====================
-    st.subheader("📋 Lançamentos do mês")
-    st.dataframe(df_filtrado, use_container_width=True)
+    # ==========================
+    df = buscar_lancamentos(usuario)
 
-    # =====================
+    if df.empty:
+        st.info("Nenhum gasto registrado ainda.")
+        return
+
+    st.subheader("📋 Lançamentos")
+    st.dataframe(df, use_container_width=True)
+
+    # ==========================
+    # EXCLUIR
+    # ==========================
+    st.subheader("🗑 Excluir Lançamento")
+    lancamento_id = st.selectbox(
+        "Selecione o ID para excluir",
+        df["id"].tolist()
+    )
+
+    if st.button("Excluir"):
+        excluir_lancamento(lancamento_id)
+        st.success("Lançamento excluído!")
+        st.rerun()
+
+    # ==========================
     # GRÁFICO
-    # =====================
+    # ==========================
     st.subheader("📈 Gastos por Categoria")
 
-    resumo = df_filtrado.groupby("Categoria")["Valor"].sum()
+    grafico_df = df.groupby("categoria")["valor"].sum()
 
-    if not resumo.empty:
-        fig, ax = plt.subplots()
-        resumo.plot(kind="bar", ax=ax)
-        ax.set_ylabel("Valor (R$)")
-        ax.set_xlabel("Categoria")
-        ax.set_title("Total por Categoria")
+    fig, ax = plt.subplots()
+    grafico_df.plot(kind="bar", ax=ax)
+    ax.set_ylabel("Total R$")
+    ax.set_xlabel("Categoria")
+    ax.set_title("Gastos por Categoria")
 
-        st.pyplot(fig)
-    else:
-        st.info("Nenhum gasto neste mês.")
+    st.pyplot(fig)
 
-    # =====================
-    # PDF
-    # =====================
-    st.subheader("📄 Exportar Relatório")
+    # ==========================
+    # EXPORTAÇÃO PDF
+    # ==========================
+    st.subheader("📄 Exportar Relatório Mensal")
 
-    if st.button("Gerar PDF do Mês"):
-        arquivo = gerar_pdf(df_filtrado, mes, ano)
-        with open(arquivo, "rb") as f:
-            st.download_button(
-                label="📥 Baixar PDF",
-                data=f,
-                file_name=arquivo,
-                mime="application/pdf"
-            )
+    colm1, colm2 = st.columns(2)
+
+    with colm1:
+        mes = st.selectbox("Mês", list(range(1, 13)))
+
+    with colm2:
+        ano = st.selectbox("Ano", list(range(2023, 2031)))
+
+    if st.button("Gerar PDF"):
+        df_filtrado = df[
+            (pd.to_datetime(df["data"]).dt.month == mes) &
+            (pd.to_datetime(df["data"]).dt.year == ano)
+        ]
+
+        if df_filtrado.empty:
+            st.warning("Nenhum lançamento nesse mês.")
+        else:
+            arquivo = gerar_pdf(df_filtrado, mes, ano, usuario)
+            with open(arquivo, "rb") as f:
+                st.download_button(
+                    "📥 Baixar PDF",
+                    f,
+                    file_name=arquivo,
+                    mime="application/pdf"
+                )
