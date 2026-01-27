@@ -1,92 +1,99 @@
+import streamlit as st
 from passlib.context import CryptContext
+from sqlalchemy import text
 from database import executar
 
-# ==========================
-# CONFIGURAÇÃO DE HASH
-# ==========================
-pwd_context = CryptContext(
-    schemes=["pbkdf2_sha256", "bcrypt"],
-    deprecated="auto"
-)
+# Configuração do hash
+pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 
 # ==========================
-# FUNÇÕES DE SENHA
+# HASH E VERIFICAÇÃO
 # ==========================
-def hash_senha(senha: str) -> str:
+
+def gerar_hash(senha: str) -> str:
     return pwd_context.hash(senha)
 
-def verificar_senha(senha_digitada: str, senha_hash: str) -> bool:
-    try:
-        return pwd_context.verify(senha_digitada, senha_hash)
-    except Exception:
-        return False
-
-# ==========================
-# MIGRAR HASH AUTOMATICAMENTE
-# ==========================
-def atualizar_hash(usuario, senha_digitada):
-    novo_hash = hash_senha(senha_digitada)
-
-    sql = """
-    UPDATE usuarios
-    SET senha = :senha
-    WHERE usuario = :usuario
+def verificar_senha(senha_digitada: str, senha_banco: str) -> bool:
     """
+    Aceita:
+    - Senha em hash bcrypt
+    - Senha antiga em texto puro
+    Se for texto puro, converte para hash automaticamente
+    """
+    try:
+        # Tenta como hash
+        return pwd_context.verify(senha_digitada, senha_banco)
+    except:
+        # Se falhar, tenta como texto puro
+        return senha_digitada == senha_banco
 
-    executar(sql, {
-        "senha": novo_hash,
-        "usuario": usuario
-    })
+
+# ==========================
+# AUTENTICAÇÃO
+# ==========================
+
+def autenticar(usuario, senha):
+    result = executar("""
+        SELECT id, nome, usuario, senha, perfil
+        FROM usuarios
+        WHERE usuario = :usuario
+    """, {"usuario": usuario}).fetchone()
+
+    if not result:
+        return None
+
+    user_id, nome, usuario_db, senha_banco, perfil = result
+
+    if verificar_senha(senha, senha_banco):
+        # Se a senha estava em texto puro, converte para hash
+        if not senha_banco.startswith("$2b$"):
+            novo_hash = gerar_hash(senha)
+            executar("""
+                UPDATE usuarios
+                SET senha = :senha
+                WHERE id = :id
+            """, {"senha": novo_hash, "id": user_id})
+
+        return {
+            "id": user_id,
+            "nome": nome,
+            "usuario": usuario_db,
+            "perfil": perfil
+        }
+
+    return None
+
 
 # ==========================
 # CRIAR USUÁRIO
 # ==========================
-def criar_usuario(nome, usuario, senha, perfil="admin"):
-    senha_hash = hash_senha(senha)
 
-    sql = """
-    INSERT INTO usuarios (nome, usuario, senha, perfil)
-    VALUES (:nome, :usuario, :senha, :perfil)
-    """
+def criar_usuario(nome, usuario, senha, perfil):
+    senha_hash = gerar_hash(senha)
 
-    executar(sql, {
+    executar("""
+        INSERT INTO usuarios (nome, usuario, senha, perfil)
+        VALUES (:nome, :usuario, :senha, :perfil)
+    """, {
         "nome": nome,
         "usuario": usuario,
         "senha": senha_hash,
         "perfil": perfil
     })
 
-# ==========================
-# AUTENTICAR
-# ==========================
-def autenticar(usuario, senha):
-    sql = """
-    SELECT id, nome, usuario, senha, perfil
-    FROM usuarios
-    WHERE usuario = :usuario
-    """
 
-    result = executar(sql, {
+# ==========================
+# TROCAR SENHA
+# ==========================
+
+def trocar_senha(usuario, nova_senha):
+    senha_hash = gerar_hash(nova_senha)
+
+    executar("""
+        UPDATE usuarios
+        SET senha = :senha
+        WHERE usuario = :usuario
+    """, {
+        "senha": senha_hash,
         "usuario": usuario
-    }).fetchone()
-
-    if not result:
-        return None
-
-    senha_hash = result[3]
-
-    # Verifica senha
-    if verificar_senha(senha, senha_hash):
-
-        # Se o hash for antigo, atualiza automaticamente
-        if pwd_context.needs_update(senha_hash):
-            atualizar_hash(usuario, senha)
-
-        return {
-            "id": result[0],
-            "nome": result[1],
-            "usuario": result[2],
-            "perfil": result[4]
-        }
-
-    return None
+    })
