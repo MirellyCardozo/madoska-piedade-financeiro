@@ -5,4 +5,4 @@ fpdf
 pytz    
 psycopg2-binary
 matplotlib
-passlib[bcrypt]
+passlib
