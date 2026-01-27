@@ -1,73 +1,24 @@
-import hashlib
 from database import executar
+from passlib.context import CryptContext
+
+pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 
 # ==========================
-# HELPERS
+# HASH DE SENHA
 # ==========================
-
 def gerar_hash(senha: str) -> str:
-    """
-    Gera hash SHA256 da senha
-    """
-    return hashlib.sha256(senha.encode("utf-8")).hexdigest()
+    return pwd_context.hash(senha)
 
-
-def verificar_senha(senha_digitada: str, senha_banco: str) -> bool:
-    """
-    Compara senha digitada com hash salvo no banco
-    Também aceita senha antiga salva em texto puro
-    """
-    hash_digitado = gerar_hash(senha_digitada)
-
-    # Caso antigo: senha salva sem hash
-    if senha_banco == senha_digitada:
-        return True
-
-    return hash_digitado == senha_banco
-
-
-# ==========================
-# LOGIN
-# ==========================
-
-def autenticar(usuario, senha):
-    result = executar("""
-        SELECT id, nome, usuario, senha, perfil
-        FROM usuarios
-        WHERE usuario = :usuario
-    """, {"usuario": usuario}).fetchone()
-
-    if not result:
-        return None
-
-    user_id, nome, usuario_db, senha_banco, perfil = result
-
-    if verificar_senha(senha, senha_banco):
-
-        # Atualiza senha antiga em texto puro para hash
-        if len(senha_banco) < 64:
-            novo_hash = gerar_hash(senha)
-            executar("""
-                UPDATE usuarios
-                SET senha = :senha
-                WHERE id = :id
-            """, {"senha": novo_hash, "id": user_id})
-
-        return {
-            "id": user_id,
-            "nome": nome,
-            "usuario": usuario_db,
-            "perfil": perfil
-        }
-
-    return None
-
+def verificar_senha(senha_digitada: str, senha_hash: str) -> bool:
+    try:
+        return pwd_context.verify(senha_digitada, senha_hash)
+    except:
+        return False
 
 # ==========================
 # CRIAR USUÁRIO
 # ==========================
-
-def criar_usuario(nome, usuario, senha, perfil):
+def criar_usuario(nome, usuario, senha, perfil="admin"):
     senha_hash = gerar_hash(senha)
 
     executar("""
@@ -80,19 +31,25 @@ def criar_usuario(nome, usuario, senha, perfil):
         "perfil": perfil
     })
 
-
 # ==========================
-# TROCAR SENHA
+# AUTENTICAR
 # ==========================
-
-def trocar_senha(usuario, nova_senha):
-    senha_hash = gerar_hash(nova_senha)
-
-    executar("""
-        UPDATE usuarios
-        SET senha = :senha
+def autenticar(usuario, senha):
+    result = executar("""
+        SELECT id, nome, usuario, senha, perfil
+        FROM usuarios
         WHERE usuario = :usuario
     """, {
-        "senha": senha_hash,
         "usuario": usuario
-    })
+    }).fetchone()
+
+    if not result:
+        return None
+
+    senha_hash = result.senha
+
+    if verificar_senha(senha, senha_hash):
+        # RETORNA SÓ O NOME — OPÇÃO 3
+        return result.nome
+
+    return None
