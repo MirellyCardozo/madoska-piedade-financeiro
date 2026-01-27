@@ -1,35 +1,51 @@
 import streamlit as st
 from passlib.context import CryptContext
-from sqlalchemy import text
 from database import executar
 
-# Configuração do hash
+# ==========================
+# CONFIG
+# ==========================
+
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
+MAX_BYTES = 72
 
 # ==========================
-# HASH E VERIFICAÇÃO
+# HELPERS
 # ==========================
+
+def _normalizar_senha(senha: str) -> str:
+    """
+    Garante que a senha não passe de 72 bytes (limite do bcrypt)
+    sem quebrar caracteres UTF-8
+    """
+    senha_bytes = senha.encode("utf-8")
+
+    if len(senha_bytes) <= MAX_BYTES:
+        return senha
+
+    # corta em bytes sem quebrar caractere
+    cortado = senha_bytes[:MAX_BYTES]
+    return cortado.decode("utf-8", errors="ignore")
+
 
 def gerar_hash(senha: str) -> str:
+    senha = _normalizar_senha(senha)
     return pwd_context.hash(senha)
 
+
 def verificar_senha(senha_digitada: str, senha_banco: str) -> bool:
-    """
-    Aceita:
-    - Senha em hash bcrypt
-    - Senha antiga em texto puro
-    Se for texto puro, converte para hash automaticamente
-    """
+    senha_digitada = _normalizar_senha(senha_digitada)
+
     try:
-        # Tenta como hash
+        # tenta como bcrypt
         return pwd_context.verify(senha_digitada, senha_banco)
     except:
-        # Se falhar, tenta como texto puro
+        # fallback: senha antiga em texto puro
         return senha_digitada == senha_banco
 
 
 # ==========================
-# AUTENTICAÇÃO
+# LOGIN
 # ==========================
 
 def autenticar(usuario, senha):
@@ -45,8 +61,9 @@ def autenticar(usuario, senha):
     user_id, nome, usuario_db, senha_banco, perfil = result
 
     if verificar_senha(senha, senha_banco):
-        # Se a senha estava em texto puro, converte para hash
-        if not senha_banco.startswith("$2b$"):
+
+        # Se a senha ainda estiver em texto puro, converte para hash
+        if not senha_banco.startswith("$2"):
             novo_hash = gerar_hash(senha)
             executar("""
                 UPDATE usuarios
