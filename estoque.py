@@ -1,179 +1,171 @@
-import os
 import streamlit as st
 import pandas as pd
-from sqlalchemy import create_engine, text
-from datetime import datetime, date
+from sqlalchemy import text
+from datetime import datetime
+import pytz
 
-BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-DB_FILE = os.path.join(BASE_DIR, "madoska.db")
-engine = create_engine(f"sqlite:///{DB_FILE}")
+from database import engine
 
-CATEGORIAS = ["Sorvetes", "Descartáveis", "Guloseimas", "Limpeza"]
+TIMEZONE = pytz.timezone("America/Sao_Paulo")
 
+# ==========================
+# BANCO
+# ==========================
+def criar_tabela_estoque():
+    with engine.begin() as conn:
+        conn.execute(text("""
+        CREATE TABLE IF NOT EXISTS estoque (
+            id SERIAL PRIMARY KEY,
+            nome TEXT NOT NULL,
+            categoria TEXT NOT NULL,
+            quantidade INTEGER NOT NULL,
+            preco NUMERIC(10,2) NOT NULL,
+            criado_em TIMESTAMP NOT NULL DEFAULT NOW()
+        )
+        """))
+
+def buscar_estoque():
+    with engine.begin() as conn:
+        result = conn.execute(text("""
+            SELECT id, nome, categoria, quantidade, preco, criado_em
+            FROM estoque
+            ORDER BY nome
+        """)).fetchall()
+
+    return pd.DataFrame(
+        result,
+        columns=["id", "nome", "categoria", "quantidade", "preco", "criado_em"]
+    )
+
+def inserir_produto(nome, categoria, quantidade, preco):
+    with engine.begin() as conn:
+        conn.execute(text("""
+            INSERT INTO estoque (nome, categoria, quantidade, preco)
+            VALUES (:nome, :categoria, :quantidade, :preco)
+        """), {
+            "nome": nome,
+            "categoria": categoria,
+            "quantidade": quantidade,
+            "preco": preco
+        })
+
+def atualizar_produto(produto_id, nome, categoria, quantidade, preco):
+    with engine.begin() as conn:
+        conn.execute(text("""
+            UPDATE estoque
+            SET nome = :nome,
+                categoria = :categoria,
+                quantidade = :quantidade,
+                preco = :preco
+            WHERE id = :id
+        """), {
+            "id": produto_id,
+            "nome": nome,
+            "categoria": categoria,
+            "quantidade": quantidade,
+            "preco": preco
+        })
+
+def excluir_produto(produto_id):
+    with engine.begin() as conn:
+        conn.execute(text("""
+            DELETE FROM estoque
+            WHERE id = :id
+        """), {"id": produto_id})
+
+# ==========================
+# TELA
+# ==========================
 def tela_estoque():
-    st.subheader("📦 Controle de Estoque")
+    criar_tabela_estoque()
 
-    tab1, tab2, tab3, tab4, tab5 = st.tabs([
-        "📋 Estoque Atual",
-        "➕ Cadastrar",
-        "🔄 Atualizar",
-        "✏️ Editar / 🗑️ Excluir",
-        "📄 Relatório por Período"
-    ])
+    st.title("📦 Controle de Estoque")
 
-    # -------- ESTOQUE ATUAL --------
-    with tab1:
-        df = pd.read_sql("SELECT * FROM estoque ORDER BY categoria, produto", engine)
-        if df.empty:
-            st.info("Nenhum produto cadastrado.")
+    agora = datetime.now(TIMEZONE).strftime("%d/%m/%Y %H:%M:%S")
+    st.caption(f"Hora BR: {agora}")
+
+    # ==========================
+    # FORMULÁRIO
+    # ==========================
+    st.subheader("➕ Cadastrar Produto")
+
+    col1, col2 = st.columns(2)
+
+    with col1:
+        nome = st.text_input("Nome do Produto")
+        categoria = st.text_input("Categoria")
+
+    with col2:
+        quantidade = st.number_input("Quantidade", min_value=0, step=1)
+        preco = st.number_input("Preço (R$)", min_value=0.0, step=0.01)
+
+    if st.button("Salvar Produto"):
+        if nome and categoria:
+            inserir_produto(nome, categoria, quantidade, preco)
+            st.success("Produto cadastrado com sucesso!")
+            st.rerun()
         else:
-            df["Status"] = df.apply(
-                lambda x: "⚠️ BAIXO" if x["quantidade"] <= x["minimo"] else "OK",
-                axis=1
+            st.warning("Preencha nome e categoria.")
+
+    # ==========================
+    # LISTA
+    # ==========================
+    df = buscar_estoque()
+
+    if df.empty:
+        st.info("Nenhum produto cadastrado.")
+        return
+
+    st.subheader("📋 Produtos em Estoque")
+    st.dataframe(df, use_container_width=True)
+
+    # ==========================
+    # EDITAR / EXCLUIR
+    # ==========================
+    st.subheader("✏️ Editar ou Excluir Produto")
+
+    escolha = st.selectbox(
+        "Selecione um produto",
+        df.to_dict("records"),
+        format_func=lambda x: f"{x['id']} - {x['nome']}"
+    )
+
+    col3, col4 = st.columns(2)
+
+    with col3:
+        novo_nome = st.text_input("Nome", value=escolha["nome"])
+        nova_categoria = st.text_input("Categoria", value=escolha["categoria"])
+
+    with col4:
+        nova_quantidade = st.number_input(
+            "Quantidade",
+            min_value=0,
+            step=1,
+            value=int(escolha["quantidade"])
+        )
+        novo_preco = st.number_input(
+            "Preço (R$)",
+            min_value=0.0,
+            step=0.01,
+            value=float(escolha["preco"])
+        )
+
+    col5, col6 = st.columns(2)
+
+    with col5:
+        if st.button("💾 Atualizar"):
+            atualizar_produto(
+                escolha["id"],
+                novo_nome,
+                nova_categoria,
+                nova_quantidade,
+                novo_preco
             )
-            st.dataframe(df, use_container_width=True)
+            st.success("Produto atualizado!")
+            st.rerun()
 
-    # -------- CADASTRAR --------
-    with tab2:
-        produto = st.text_input("Produto")
-        categoria = st.selectbox("Categoria", CATEGORIAS)
-        quantidade = st.number_input("Quantidade inicial", min_value=0.0)
-        unidade = st.text_input("Unidade")
-        minimo = st.number_input("Estoque mínimo", min_value=0.0)
-
-        if st.button("Cadastrar"):
-            if not produto or not unidade:
-                st.error("Preencha o nome do produto e a unidade.")
-            else:
-                with engine.begin() as conn:
-                    conn.execute(text("""
-                    INSERT INTO estoque
-                    (produto, categoria, quantidade, unidade, minimo, ultima_atualizacao)
-                    VALUES (:p,:c,:q,:u,:m,:d)
-                    """), {
-                        "p": produto,
-                        "c": categoria,
-                        "q": quantidade,
-                        "u": unidade,
-                        "m": minimo,
-                        "d": datetime.now().strftime("%d/%m/%Y %H:%M")
-                    })
-                st.success("Produto cadastrado!")
-                st.rerun()
-
-    # -------- ATUALIZAR --------
-    with tab3:
-        produtos = pd.read_sql("SELECT * FROM estoque", engine)
-        if produtos.empty:
-            st.info("Nenhum produto disponível.")
-        else:
-            escolha = st.selectbox(
-                "Produto",
-                produtos.to_dict("records"),
-                format_func=lambda x: f"{x['produto']} ({x['quantidade']} {x['unidade']})"
-            )
-            nova_qtd = st.number_input("Nova quantidade", min_value=0.0)
-
-            if st.button("Atualizar Quantidade"):
-                diferenca = nova_qtd - escolha["quantidade"]
-                tipo = "Entrada" if diferenca > 0 else "Saída"
-
-                with engine.begin() as conn:
-                    conn.execute(text("""
-                    UPDATE estoque
-                    SET quantidade=:q, ultima_atualizacao=:d
-                    WHERE id=:id
-                    """), {
-                        "q": nova_qtd,
-                        "d": datetime.now().strftime("%d/%m/%Y %H:%M"),
-                        "id": escolha["id"]
-                    })
-
-                    conn.execute(text("""
-                    INSERT INTO estoque_historico
-                    (produto_id, data, tipo, quantidade, observacao)
-                    VALUES (:p,:d,:t,:q,:o)
-                    """), {
-                        "p": escolha["id"],
-                        "d": datetime.now().strftime("%d/%m/%Y"),
-                        "t": tipo,
-                        "q": abs(diferenca),
-                        "o": "Ajuste manual"
-                    })
-
-                st.success("Estoque atualizado!")
-                st.rerun()
-
-    # -------- EDITAR / EXCLUIR --------
-    with tab4:
-        produtos = pd.read_sql("SELECT * FROM estoque", engine)
-        if produtos.empty:
-            st.info("Nenhum produto.")
-        else:
-            escolha = st.selectbox(
-                "Produto",
-                produtos.to_dict("records"),
-                format_func=lambda x: x["produto"]
-            )
-
-            nome = st.text_input("Nome", value=escolha["produto"])
-            categoria = st.selectbox(
-                "Categoria",
-                CATEGORIAS,
-                index=CATEGORIAS.index(escolha["categoria"])
-            )
-            unidade = st.text_input("Unidade", value=escolha["unidade"])
-            minimo = st.number_input("Mínimo", value=float(escolha["minimo"]))
-
-            col1, col2 = st.columns(2)
-
-            with col1:
-                if st.button("💾 Salvar"):
-                    with engine.begin() as conn:
-                        conn.execute(text("""
-                        UPDATE estoque
-                        SET produto=:p, categoria=:c, unidade=:u, minimo=:m
-                        WHERE id=:id
-                        """), {
-                            "p": nome,
-                            "c": categoria,
-                            "u": unidade,
-                            "m": minimo,
-                            "id": escolha["id"]
-                        })
-                    st.success("Produto atualizado!")
-                    st.rerun()
-
-            with col2:
-                if st.button("🗑️ Excluir"):
-                    with engine.begin() as conn:
-                        conn.execute(
-                            text("DELETE FROM estoque WHERE id=:id"),
-                            {"id": escolha["id"]}
-                        )
-                    st.warning("Produto excluído!")
-                    st.rerun()
-
-    # -------- RELATÓRIO --------
-    with tab5:
-        st.subheader("📄 Relatório de Estoque por Período")
-
-        inicio = st.date_input("Data inicial", value=date.today())
-        fim = st.date_input("Data final", value=date.today())
-
-        df = pd.read_sql("""
-            SELECT h.data, e.produto, h.tipo, h.quantidade, h.observacao
-            FROM estoque_historico h
-            JOIN estoque e ON e.id = h.produto_id
-            ORDER BY h.data DESC
-        """, engine)
-
-        if df.empty:
-            st.info("Nenhum histórico disponível.")
-        else:
-            df["data"] = pd.to_datetime(df["data"], format="%d/%m/%Y")
-            filtro = df[
-                (df["data"].dt.date >= inicio) &
-                (df["data"].dt.date <= fim)
-            ]
-            st.dataframe(filtro, use_container_width=True)
+    with col6:
+        if st.button("🗑 Excluir"):
+            excluir_produto(escolha["id"])
+            st.success("Produto excluído!")
+            st.rerun()
