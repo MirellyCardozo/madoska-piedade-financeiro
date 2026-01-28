@@ -1,142 +1,68 @@
 import streamlit as st
-import pandas as pd
-from datetime import datetime
-import pytz
+from sqlalchemy import text
+from database import engine
+from datetime import date
 
-from database import executar
 
-# ==========================
-# HORA BR
-# ==========================
-def agora_br():
-    tz = pytz.timezone("America/Sao_Paulo")
-    return datetime.now(tz)
-
-# ==========================
-# BUSCAR GASTOS
-# ==========================
-def buscar_gastos():
-    sql = """
-    SELECT id, data, categoria, descricao, valor
-    FROM gastos
-    ORDER BY data DESC
-    """
-    result = executar(sql).fetchall()
-    return pd.DataFrame(result, columns=["ID", "Data", "Categoria", "Descrição", "Valor"])
-
-# ==========================
-# INSERIR
-# ==========================
-def inserir_gasto(data, categoria, descricao, valor):
-    sql = """
-    INSERT INTO gastos (data, categoria, descricao, valor)
-    VALUES (:data, :categoria, :descricao, :valor)
-    """
-    executar(sql, {
-        "data": data,
-        "categoria": categoria,
-        "descricao": descricao,
-        "valor": valor
-    })
-
-# ==========================
-# ATUALIZAR
-# ==========================
-def atualizar_gasto(id_gasto, data, categoria, descricao, valor):
-    sql = """
-    UPDATE gastos
-    SET data = :data,
-        categoria = :categoria,
-        descricao = :descricao,
-        valor = :valor
-    WHERE id = :id
-    """
-    executar(sql, {
-        "id": id_gasto,
-        "data": data,
-        "categoria": categoria,
-        "descricao": descricao,
-        "valor": valor
-    })
-
-# ==========================
-# EXCLUIR
-# ==========================
-def excluir_gasto(id_gasto):
-    sql = "DELETE FROM gastos WHERE id = :id"
-    executar(sql, {"id": id_gasto})
-
-# ==========================
-# TELA PRINCIPAL
-# ==========================
 def tela_lancamentos():
     st.title("💰 Lançamentos Financeiros")
-    st.caption(f"Hora BR: {agora_br().strftime('%d/%m/%Y %H:%M:%S')}")
 
-    abas = st.tabs(["📋 Listar", "➕ Cadastrar", "✏️ Editar", "🗑️ Excluir"])
-
-    df = buscar_gastos()
-
-    # =====================
-    # LISTAR
-    # =====================
-    with abas[0]:
-        if df.empty:
-            st.info("Nenhum gasto registrado.")
-        else:
-            st.dataframe(df, use_container_width=True)
-
-    # =====================
-    # CADASTRAR
-    # =====================
-    with abas[1]:
-        st.subheader("Novo Gasto")
-
-        data = st.date_input("Data", value=agora_br().date())
-        categoria = st.text_input("Categoria")
+    with st.expander("➕ Novo Lançamento"):
+        data = st.date_input("Data", value=date.today())
+        tipo = st.selectbox("Tipo", ["Entrada", "Saída"])
         descricao = st.text_input("Descrição")
-        valor = st.number_input("Valor (R$)", min_value=0.0, step=0.01)
+        categoria = st.text_input("Categoria")
+        pagamento = st.selectbox("Forma de pagamento", ["Dinheiro", "Pix", "Cartão", "Outro"])
+        valor = st.number_input("Valor", min_value=0.0, format="%.2f")
+        observacoes = st.text_area("Observações")
 
-        if st.button("Salvar Gasto"):
-            if not categoria or not descricao or valor <= 0:
-                st.error("Preencha todos os campos corretamente.")
-            else:
-                inserir_gasto(data, categoria, descricao, valor)
-                st.success("Gasto cadastrado com sucesso!")
-                st.experimental_rerun()
+        if st.button("Salvar"):
+            with engine.begin() as conn:
+                conn.execute(
+                    text("""
+                        INSERT INTO registros
+                        (data, tipo, descricao, categoria, pagamento, valor, observacoes)
+                        VALUES
+                        (:data, :tipo, :descricao, :categoria, :pagamento, :valor, :observacoes)
+                    """),
+                    {
+                        "data": str(data),
+                        "tipo": tipo,
+                        "descricao": descricao,
+                        "categoria": categoria,
+                        "pagamento": pagamento,
+                        "valor": valor,
+                        "observacoes": observacoes
+                    }
+                )
+            st.success("Lançamento salvo!")
+            st.experimental_rerun()
 
-    # =====================
-    # EDITAR
-    # =====================
-    with abas[2]:
-        if df.empty:
-            st.info("Nada para editar.")
-        else:
-            gasto_id = st.selectbox("Selecione o gasto", df["ID"])
+    st.divider()
+    st.subheader("📋 Registros")
 
-            gasto = df[df["ID"] == gasto_id].iloc[0]
+    with engine.begin() as conn:
+        dados = conn.execute(
+            text("SELECT * FROM registros ORDER BY data DESC")
+        ).fetchall()
 
-            data = st.date_input("Data", gasto["Data"])
-            categoria = st.text_input("Categoria", gasto["Categoria"])
-            descricao = st.text_input("Descrição", gasto["Descrição"])
-            valor = st.number_input("Valor (R$)", value=float(gasto["Valor"]), min_value=0.0, step=0.01)
+    if not dados:
+        st.info("Nenhum lançamento registrado.")
+        return
 
-            if st.button("Atualizar Gasto"):
-                atualizar_gasto(gasto_id, data, categoria, descricao, valor)
-                st.success("Gasto atualizado!")
-                st.experimental_rerun()
+    for r in dados:
+        col1, col2, col3, col4, col5, col6 = st.columns([2, 2, 3, 2, 2, 1])
 
-    # =====================
-    # EXCLUIR
-    # =====================
-    with abas[3]:
-        if df.empty:
-            st.info("Nada para excluir.")
-        else:
-            gasto_id = st.selectbox("Selecione o gasto para excluir", df["ID"])
-            st.warning("Essa ação NÃO pode ser desfeita.")
+        col1.write(r.data)
+        col2.write(r.tipo)
+        col3.write(r.descricao)
+        col4.write(r.categoria)
+        col5.write(f"R$ {float(r.valor):.2f}")
 
-            if st.button("Excluir Gasto"):
-                excluir_gasto(gasto_id)
-                st.success("Gasto excluído!")
-                st.experimental_rerun()
+        if col6.button("🗑️", key=f"del_reg_{r.id}"):
+            with engine.begin() as conn:
+                conn.execute(
+                    text("DELETE FROM registros WHERE id = :id"),
+                    {"id": r.id}
+                )
+            st.experimental_rerun()
