@@ -29,7 +29,7 @@ def tela_usuarios(user):
                     "perfil": perfil
                 }
             )
-            st.success("Usuário criado")
+            st.success("Usuário criado com sucesso")
             st.rerun()
         else:
             st.warning("Preencha todos os campos")
@@ -45,14 +45,19 @@ def tela_usuarios(user):
         fetchall=True
     )
 
+    if not usuarios:
+        st.info("Nenhum usuário cadastrado")
+        return
+
     for u in usuarios:
         with st.expander(f"{u['nome']} ({u['usuario']})"):
             st.write(f"Perfil: {u['perfil']}")
 
+            # Impede que o usuário se delete
             if u["usuario"] != user["usuario"]:
                 if st.button("🗑 Excluir", key=f"del_user_{u['id']}"):
                     executar(
-                        "DELETE FROM usuarios WHERE id=:id",
+                        "DELETE FROM usuarios WHERE id = :id",
                         {"id": u["id"]}
                     )
                     st.warning("Usuário removido")
