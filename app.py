@@ -2,41 +2,28 @@ import streamlit as st
 from datetime import datetime
 import pytz
 
-from database import criar_tabelas
+# IMPORTA SEUS MÓDULOS
 from auth import autenticar
 from dashboard import tela_dashboard
+from estoque import tela_estoque
 from lancamentos import tela_lancamentos
 from usuarios import tela_usuarios
 
-
-# =========================
-# CONFIG STREAMLIT
-# =========================
+# =============================
+# CONFIG
+# =============================
 st.set_page_config(
-    page_title="Madoska Piedade - Financeiro",
-    page_icon="📊",
+    page_title="Madoska Piedade - Sistema Financeiro",
     layout="wide"
 )
 
-# =========================
-# CRIA TABELAS SE NÃO EXISTIREM
-# =========================
-criar_tabelas()
+TIMEZONE = pytz.timezone("America/Sao_Paulo")
 
-
-# =========================
-# FUNÇÃO HORA BRASIL
-# =========================
-def hora_br():
-    tz = pytz.timezone("America/Sao_Paulo")
-    return datetime.now(tz).strftime("%d/%m/%Y %H:%M:%S")
-
-
-# =========================
-# TELA DE LOGIN
-# =========================
+# =============================
+# LOGIN
+# =============================
 def tela_login():
-    st.title("🔐 Login - Madoska Piedade")
+    st.markdown("## 🔐 Login - Madoska Piedade")
 
     usuario = st.text_input("Usuário")
     senha = st.text_input("Senha", type="password")
@@ -51,52 +38,59 @@ def tela_login():
                 "usuario": user["usuario"],
                 "perfil": user["perfil"]
             }
-            st.experimental_rerun()
+            st.rerun()
         else:
             st.error("Usuário ou senha inválidos")
 
-
-# =========================
-# TELA PRINCIPAL
-# =========================
+# =============================
+# APP PRINCIPAL
+# =============================
 def tela_principal():
     user = st.session_state["user"]
 
+    agora = datetime.now(TIMEZONE).strftime("%d/%m/%Y %H:%M:%S")
+
     # SIDEBAR
     st.sidebar.markdown(f"👤 **Usuário:** {user['nome']}")
-    st.sidebar.markdown(f"🕒 **Hora BR:** {hora_br()}")
+    st.sidebar.markdown(f"🕒 **Hora BR:** {agora}")
     st.sidebar.divider()
 
-    menu = st.sidebar.radio("Menu", [
-        "📊 Dashboard",
-        "💰 Lançamentos",
-        "👥 Usuários",
-        "🚪 Sair"
-    ])
+    menu = st.sidebar.radio(
+        "Menu",
+        [
+            "📊 Dashboard",
+            "📦 Estoque",
+            "💰 Lançamentos",
+            "👥 Usuários",
+            "🚪 Sair"
+        ]
+    )
 
-    # CONTROLE DE PERMISSÃO
-    if menu == "👥 Usuários" and user["perfil"] != "admin":
-        st.warning("Apenas administradores podem acessar essa área.")
-        return
-
+    # =============================
     # ROTAS
+    # =============================
     if menu == "📊 Dashboard":
         tela_dashboard(user)
 
+    elif menu == "📦 Estoque":
+        tela_estoque(user)
+
     elif menu == "💰 Lançamentos":
-        tela_lancamentos()
+        tela_lancamentos(user)
 
     elif menu == "👥 Usuários":
-        tela_usuarios()
+        if user["perfil"] != "admin":
+            st.warning("Acesso restrito a administradores")
+        else:
+            tela_usuarios(user)
 
     elif menu == "🚪 Sair":
         st.session_state.clear()
-        st.experimental_rerun()
+        st.rerun()
 
-
-# =========================
+# =============================
 # CONTROLE DE SESSÃO
-# =========================
+# =============================
 if "user" not in st.session_state:
     tela_login()
 else:
