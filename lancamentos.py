@@ -2,8 +2,9 @@ import streamlit as st
 from database import executar
 from datetime import date
 
-CATEGORIAS = ["Aluguel", "Fornecedor", "Energia", "Internet", "Outros"]
-PAGAMENTOS = ["Pix", "Cartão", "Dinheiro", "Boleto"]
+CATEGORIAS = ["Aluguel", "Fornecedor", "Energia", "Internet","Funcionários", "Impostos","Manutenção", "Outros"]
+PAGAMENTOS = ["Pix", "Cartão", "Dinheiro", "Boleto","Transferência"]
+
 
 def tela_lancamentos(user=None):
     st.title("💰 Lançamentos Financeiros")
