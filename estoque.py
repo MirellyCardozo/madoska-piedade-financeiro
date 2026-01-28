@@ -1,171 +1,90 @@
 import streamlit as st
-import pandas as pd
-from sqlalchemy import text
-from datetime import datetime
-import pytz
+from database import executar
 
-from database import engine
-
-TIMEZONE = pytz.timezone("America/Sao_Paulo")
-
-# ==========================
-# BANCO
-# ==========================
-def criar_tabela_estoque():
-    with engine.begin() as conn:
-        conn.execute(text("""
-        CREATE TABLE IF NOT EXISTS estoque (
-            id SERIAL PRIMARY KEY,
-            nome TEXT NOT NULL,
-            categoria TEXT NOT NULL,
-            quantidade INTEGER NOT NULL,
-            preco NUMERIC(10,2) NOT NULL,
-            criado_em TIMESTAMP NOT NULL DEFAULT NOW()
-        )
-        """))
-
-def buscar_estoque():
-    with engine.begin() as conn:
-        result = conn.execute(text("""
-            SELECT id, nome, categoria, quantidade, preco, criado_em
-            FROM estoque
-            ORDER BY nome
-        """)).fetchall()
-
-    return pd.DataFrame(
-        result,
-        columns=["id", "nome", "categoria", "quantidade", "preco", "criado_em"]
-    )
-
-def inserir_produto(nome, categoria, quantidade, preco):
-    with engine.begin() as conn:
-        conn.execute(text("""
-            INSERT INTO estoque (nome, categoria, quantidade, preco)
-            VALUES (:nome, :categoria, :quantidade, :preco)
-        """), {
-            "nome": nome,
-            "categoria": categoria,
-            "quantidade": quantidade,
-            "preco": preco
-        })
-
-def atualizar_produto(produto_id, nome, categoria, quantidade, preco):
-    with engine.begin() as conn:
-        conn.execute(text("""
-            UPDATE estoque
-            SET nome = :nome,
-                categoria = :categoria,
-                quantidade = :quantidade,
-                preco = :preco
-            WHERE id = :id
-        """), {
-            "id": produto_id,
-            "nome": nome,
-            "categoria": categoria,
-            "quantidade": quantidade,
-            "preco": preco
-        })
-
-def excluir_produto(produto_id):
-    with engine.begin() as conn:
-        conn.execute(text("""
-            DELETE FROM estoque
-            WHERE id = :id
-        """), {"id": produto_id})
-
-# ==========================
-# TELA
-# ==========================
-def tela_estoque():
-    criar_tabela_estoque()
-
+def tela_estoque(user):
     st.title("📦 Controle de Estoque")
 
-    agora = datetime.now(TIMEZONE).strftime("%d/%m/%Y %H:%M:%S")
-    st.caption(f"Hora BR: {agora}")
+    # ======================
+    # CADASTRO
+    # ======================
+    st.subheader("Cadastrar Produto")
 
-    # ==========================
-    # FORMULÁRIO
-    # ==========================
-    st.subheader("➕ Cadastrar Produto")
+    nome = st.text_input("Nome do produto")
+    quantidade = st.number_input("Quantidade", min_value=0, step=1)
+    preco = st.number_input("Preço", min_value=0.0, format="%.2f")
 
-    col1, col2 = st.columns(2)
-
-    with col1:
-        nome = st.text_input("Nome do Produto")
-        categoria = st.text_input("Categoria")
-
-    with col2:
-        quantidade = st.number_input("Quantidade", min_value=0, step=1)
-        preco = st.number_input("Preço (R$)", min_value=0.0, step=0.01)
-
-    if st.button("Salvar Produto"):
-        if nome and categoria:
-            inserir_produto(nome, categoria, quantidade, preco)
-            st.success("Produto cadastrado com sucesso!")
+    if st.button("Salvar produto"):
+        if nome:
+            executar(
+                """
+                INSERT INTO estoque (nome, quantidade, preco)
+                VALUES (:nome, :quantidade, :preco)
+                """,
+                {
+                    "nome": nome,
+                    "quantidade": quantidade,
+                    "preco": preco
+                }
+            )
+            st.success("Produto cadastrado com sucesso")
             st.rerun()
         else:
-            st.warning("Preencha nome e categoria.")
+            st.warning("Informe o nome do produto")
 
-    # ==========================
-    # LISTA
-    # ==========================
-    df = buscar_estoque()
+    # ======================
+    # LISTAGEM
+    # ======================
+    st.subheader("Estoque Atual")
 
-    if df.empty:
-        st.info("Nenhum produto cadastrado.")
-        return
-
-    st.subheader("📋 Produtos em Estoque")
-    st.dataframe(df, use_container_width=True)
-
-    # ==========================
-    # EDITAR / EXCLUIR
-    # ==========================
-    st.subheader("✏️ Editar ou Excluir Produto")
-
-    escolha = st.selectbox(
-        "Selecione um produto",
-        df.to_dict("records"),
-        format_func=lambda x: f"{x['id']} - {x['nome']}"
+    dados = executar(
+        "SELECT id, nome, quantidade, preco FROM estoque ORDER BY nome",
+        fetchall=True
     )
 
-    col3, col4 = st.columns(2)
+    if not dados:
+        st.info("Nenhum produto cadastrado")
+        return
 
-    with col3:
-        novo_nome = st.text_input("Nome", value=escolha["nome"])
-        nova_categoria = st.text_input("Categoria", value=escolha["categoria"])
+    for item in dados:
+        with st.expander(f"{item['nome']}"):
+            col1, col2, col3 = st.columns(3)
 
-    with col4:
-        nova_quantidade = st.number_input(
-            "Quantidade",
-            min_value=0,
-            step=1,
-            value=int(escolha["quantidade"])
-        )
-        novo_preco = st.number_input(
-            "Preço (R$)",
-            min_value=0.0,
-            step=0.01,
-            value=float(escolha["preco"])
-        )
+            with col1:
+                nova_qtd = st.number_input(
+                    "Quantidade",
+                    value=int(item["quantidade"]),
+                    key=f"qtd_{item['id']}"
+                )
 
-    col5, col6 = st.columns(2)
+            with col2:
+                novo_preco = st.number_input(
+                    "Preço",
+                    value=float(item["preco"]),
+                    format="%.2f",
+                    key=f"preco_{item['id']}"
+                )
 
-    with col5:
-        if st.button("💾 Atualizar"):
-            atualizar_produto(
-                escolha["id"],
-                novo_nome,
-                nova_categoria,
-                nova_quantidade,
-                novo_preco
-            )
-            st.success("Produto atualizado!")
-            st.rerun()
+            with col3:
+                if st.button("💾 Atualizar", key=f"upd_{item['id']}"):
+                    executar(
+                        """
+                        UPDATE estoque
+                        SET quantidade=:qtd, preco=:preco
+                        WHERE id=:id
+                        """,
+                        {
+                            "qtd": nova_qtd,
+                            "preco": novo_preco,
+                            "id": item["id"]
+                        }
+                    )
+                    st.success("Atualizado")
+                    st.rerun()
 
-    with col6:
-        if st.button("🗑 Excluir"):
-            excluir_produto(escolha["id"])
-            st.success("Produto excluído!")
-            st.rerun()
+                if st.button("🗑 Excluir", key=f"del_{item['id']}"):
+                    executar(
+                        "DELETE FROM estoque WHERE id=:id",
+                        {"id": item["id"]}
+                    )
+                    st.warning("Produto excluído")
+                    st.rerun()
