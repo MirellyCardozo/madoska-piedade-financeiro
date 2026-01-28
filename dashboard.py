@@ -1,135 +1,89 @@
 import streamlit as st
 import pandas as pd
 import matplotlib.pyplot as plt
-from fpdf import FPDF
+from sqlalchemy import text
+from database import engine
 from datetime import datetime
-import pytz
+from fpdf import FPDF
 
-from database import executar
 
-# ==========================
-# HORA BR
-# ==========================
-def agora_br():
-    tz = pytz.timezone("America/Sao_Paulo")
-    return datetime.now(tz)
-
-# ==========================
-# BUSCAR GASTOS
-# ==========================
-def buscar_gastos():
-    sql = """
-    SELECT 
-        data,
-        categoria,
-        descricao,
-        valor
-    FROM gastos
-    ORDER BY data DESC
-    """
-    result = executar(sql).fetchall()
-
-    return pd.DataFrame(result, columns=["Data", "Categoria", "Descrição", "Valor"])
-
-# ==========================
-# GERAR PDF
-# ==========================
-def gerar_pdf(df, mes, ano):
+def gerar_pdf(df, mes):
     pdf = FPDF()
     pdf.set_auto_page_break(auto=True, margin=15)
     pdf.add_page()
 
-    pdf.set_font("Arial", "B", 16)
-    pdf.cell(0, 10, f"Relatório Financeiro - {mes}/{ano}", ln=True)
+    pdf.set_font("Arial", "B", 14)
+    pdf.cell(0, 10, f"Relatório Financeiro - {mes}", ln=True)
 
     pdf.set_font("Arial", "", 10)
-    pdf.cell(0, 10, f"Gerado em: {agora_br().strftime('%d/%m/%Y %H:%M:%S')}", ln=True)
-
     pdf.ln(5)
-
-    total = 0
 
     for _, row in df.iterrows():
-        linha = f"{row['Data']} | {row['Categoria']} | {row['Descrição']} | R$ {row['Valor']:.2f}"
-        pdf.cell(0, 8, linha, ln=True)
-        total += row["Valor"]
+        linha = f"{row['data']} | {row['tipo']} | {row['descricao']} | {row['categoria']} | R$ {row['valor']}"
+        pdf.multi_cell(0, 6, linha)
 
-    pdf.ln(5)
-    pdf.set_font("Arial", "B", 12)
-    pdf.cell(0, 10, f"TOTAL DO MÊS: R$ {total:.2f}", ln=True)
+    caminho = f"/tmp/relatorio_{mes}.pdf"
+    pdf.output(caminho)
 
-    arquivo = f"relatorio_{mes}_{ano}.pdf"
-    pdf.output(arquivo)
+    return caminho
 
-    return arquivo
 
-# ==========================
-# TELA DASHBOARD
-# ==========================
-def tela_dashboard(usuario):
+def tela_dashboard(usuario=None):
     st.title("📊 Dashboard Financeiro")
 
-    st.info(f"Usuário: {usuario}")
-    st.caption(f"Hora BR: {agora_br().strftime('%d/%m/%Y %H:%M:%S')}")
+    mes = st.selectbox(
+        "Selecione o mês",
+        [f"{i:02d}/{datetime.now().year}" for i in range(1, 13)]
+    )
 
-    df = buscar_gastos()
+    mes_num, ano = mes.split("/")
+    mes_num = int(mes_num)
 
-    if df.empty:
-        st.warning("Nenhum gasto registrado ainda.")
+    with engine.begin() as conn:
+        dados = conn.execute(
+            text("""
+                SELECT data, tipo, descricao, categoria, valor
+                FROM registros
+            """)
+        ).fetchall()
+
+    if not dados:
+        st.info("Nenhum gasto registrado ainda.")
         return
 
-    # =====================
-    # FILTRO MÊS / ANO
-    # =====================
-    col1, col2 = st.columns(2)
+    df = pd.DataFrame(dados, columns=["data", "tipo", "descricao", "categoria", "valor"])
+    df["data"] = pd.to_datetime(df["data"], errors="coerce")
 
-    with col1:
-        mes = st.selectbox("Mês", list(range(1, 13)), index=agora_br().month - 1)
-
-    with col2:
-        ano = st.selectbox("Ano", [agora_br().year - 1, agora_br().year, agora_br().year + 1])
-
-    df["Data"] = pd.to_datetime(df["Data"])
-    df_filtrado = df[
-        (df["Data"].dt.month == mes) &
-        (df["Data"].dt.year == ano)
+    df_mes = df[
+        (df["data"].dt.month == mes_num) &
+        (df["data"].dt.year == int(ano))
     ]
 
-    # =====================
-    # TABELA
-    # =====================
-    st.subheader("📋 Lançamentos do mês")
-    st.dataframe(df_filtrado, use_container_width=True)
+    if df_mes.empty:
+        st.warning("Sem registros para este mês.")
+        return
 
-    # =====================
-    # GRÁFICO
-    # =====================
     st.subheader("📈 Gastos por Categoria")
 
-    resumo = df_filtrado.groupby("Categoria")["Valor"].sum()
+    resumo = df_mes.groupby("categoria")["valor"].sum()
 
-    if not resumo.empty:
-        fig, ax = plt.subplots()
-        resumo.plot(kind="bar", ax=ax)
-        ax.set_ylabel("Valor (R$)")
-        ax.set_xlabel("Categoria")
-        ax.set_title("Total por Categoria")
+    fig, ax = plt.subplots()
+    resumo.plot(kind="bar", ax=ax)
+    ax.set_ylabel("Valor (R$)")
+    ax.set_xlabel("Categoria")
+    ax.set_title("Total por Categoria")
 
-        st.pyplot(fig)
-    else:
-        st.info("Nenhum gasto neste mês.")
+    st.pyplot(fig)
 
-    # =====================
-    # PDF
-    # =====================
+    st.divider()
     st.subheader("📄 Exportar Relatório")
 
-    if st.button("Gerar PDF do Mês"):
-        arquivo = gerar_pdf(df_filtrado, mes, ano)
-        with open(arquivo, "rb") as f:
+    if st.button("Gerar PDF"):
+        caminho = gerar_pdf(df_mes, mes)
+        with open(caminho, "rb") as f:
             st.download_button(
-                label="📥 Baixar PDF",
-                data=f,
-                file_name=arquivo,
+                "⬇️ Baixar relatório em PDF",
+                f,
+                file_name=f"relatorio_{mes}.pdf",
                 mime="application/pdf"
             )

@@ -1,7 +1,7 @@
 streamlit
+pandas
 sqlalchemy
 psycopg2-binary
-pandas
-pytz
-passlib[bcrypt]
 fpdf
+pytz
+matplotlib
