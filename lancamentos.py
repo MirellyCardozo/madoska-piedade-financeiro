@@ -1,123 +1,71 @@
 import streamlit as st
+import pandas as pd
 from database import executar
 from datetime import date
 
-# ==========================
-# CONFIGURAÇÕES
-# ==========================
-
 CATEGORIAS = [
-    "Aluguel",
-    "Fornecedor",
-    "Energia",
-    "Internet",
-    "Funcionários",
-    "Impostos",
-    "Manutenção",
-    "Outros"
+    "Aluguel", "Fornecedor", "Energia", "Internet",
+    "Funcionários", "Impostos", "Manutenção", "Outros"
 ]
 
-PAGAMENTOS = [
-    "Pix",
-    "Cartão",
-    "Dinheiro",
-    "Boleto",
-    "Transferência"
-]
-
-# ==========================
-# TELA LANÇAMENTOS
-# ==========================
+PAGAMENTOS = ["Pix", "Cartão", "Dinheiro", "Boleto", "Transferência"]
 
 def tela_lancamentos(user):
-    st.title("📒 Lançamentos Financeiros")
+    st.title("💰 Lançamentos Financeiros")
 
-    # ==========================
-    # FORMULÁRIO
-    # ==========================
-    with st.form("form_lancamento"):
-        col1, col2 = st.columns(2)
+    col1, col2 = st.columns(2)
 
-        with col1:
-            data = st.date_input("Data", value=date.today())
-            categoria = st.selectbox("Categoria", CATEGORIAS)
+    with col1:
+        data = st.date_input("Data", value=date.today())
+        descricao = st.text_input("Descrição")
+        categoria = st.selectbox("Categoria", CATEGORIAS)
 
-        with col2:
-            pagamento = st.selectbox("Forma de Pagamento", PAGAMENTOS)
-            valor = st.number_input("Valor (R$)", min_value=0.0, step=0.01, format="%.2f")
-
-        descricao = st.text_area("Descrição")
+    with col2:
+        valor = st.number_input("Valor", min_value=0.0, step=0.01)
         tipo = st.selectbox("Tipo", ["Entrada", "Saída"])
+        pagamento = st.selectbox("Forma de pagamento", PAGAMENTOS)
 
-        salvar = st.form_submit_button("💾 Salvar lançamento")
-
-    # ==========================
-    # SALVAR NO BANCO
-    # ==========================
-    if salvar:
-        if not descricao.strip():
-            st.error("Informe a descrição")
-            return
-
-        executar(
-            """
-            INSERT INTO registros
-            (data, tipo, descricao, categoria, pagamento, valor, observacoes)
-            VALUES
-            (:data, :tipo, :descricao, :categoria, :pagamento, :valor, '')
-            """,
-            {
-                "data": data.strftime("%d/%m/%Y"),
-                "tipo": tipo,
-                "descricao": descricao,
-                "categoria": categoria,
-                "pagamento": pagamento,
-                "valor": float(valor)
-            }
-        )
-
-        st.success("✅ Lançamento salvo com sucesso")
+    if st.button("Salvar lançamento"):
+        executar("""
+            INSERT INTO lancamentos
+            (user_id, data, descricao, categoria, valor, tipo, pagamento)
+            VALUES (:u, :d, :desc, :cat, :v, :t, :p)
+        """, {
+            "u": user["id"],
+            "d": data,
+            "desc": descricao,
+            "cat": categoria,
+            "v": valor,
+            "t": tipo,
+            "p": pagamento
+        })
+        st.success("Lançamento salvo!")
         st.rerun()
 
-    # ==========================
-    # LISTAGEM
-    # ==========================
     st.divider()
-    st.subheader("📋 Lançamentos registrados")
+    st.subheader("📋 Registros")
 
-    registros = executar(
-        """
-        SELECT
-            id,
-            data,
-            tipo,
-            descricao,
-            valor,
-            categoria,
-            pagamento
-        FROM registros
-        ORDER BY id DESC
-        """,
-        fetchall=True
-    )
+    rows = executar("""
+        SELECT id, data, descricao, categoria, valor, tipo, pagamento
+        FROM lancamentos
+        WHERE user_id = :u
+        ORDER BY data DESC
+    """, {"u": user["id"]}, fetchall=True)
 
-    if not registros:
-        st.info("Nenhum lançamento cadastrado")
+    if not rows:
+        st.info("Nenhum lançamento registrado")
         return
 
-    for r in registros:
-        with st.expander(
-            f"{r['data']} | {r['tipo']} | R$ {float(r['valor']):.2f} | {r['categoria']}"
-        ):
-            st.write(f"**Descrição:** {r['descricao']}")
-            st.write(f"**Categoria:** {r['categoria']}")
-            st.write(f"**Pagamento:** {r['pagamento']}")
-            st.write(f"**Valor:** R$ {float(r['valor']):.2f}")
+    df = pd.DataFrame(rows, columns=[
+        "ID", "Data", "Descrição", "Categoria",
+        "Valor", "Tipo", "Pagamento"
+    ])
 
-            if st.button("🗑️ Excluir", key=f"del_{r['id']}"):
-                executar(
-                    "DELETE FROM registros WHERE id = :id",
-                    {"id": r["id"]}
-                )
-                st.success("Lançamento excluído")
-                st.rerun()
+    st.dataframe(df, use_container_width=True)
+
+    excluir_id = st.number_input("ID para excluir", min_value=1, step=1)
+
+    if st.button("Excluir lançamento"):
+        executar("DELETE FROM lancamentos WHERE id = :id", {"id": excluir_id})
+        st.success("Lançamento excluído")
+        st.rerun()

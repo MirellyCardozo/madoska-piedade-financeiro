@@ -5,9 +5,8 @@ from estoque import tela_estoque
 from lancamentos import tela_lancamentos
 from usuarios import tela_usuarios
 
-# ==========================
-# LOGIN
-# ==========================
+st.set_page_config("Madoska Financeiro", layout="wide")
+
 def tela_login():
     st.title("🔐 Login - Madoska Piedade")
 
@@ -16,35 +15,28 @@ def tela_login():
 
     if st.button("Entrar"):
         user = autenticar(usuario, senha)
-
         if user:
-            st.session_state["user"] = {
-                "id": user["id"],
-                "nome": user["nome"],
-                "usuario": user["usuario"],
-                "perfil": user["perfil"]
-            }
+            st.session_state["user"] = user
             st.rerun()
         else:
             st.error("Usuário ou senha inválidos")
 
-# ==========================
-# SISTEMA PRINCIPAL
-# ==========================
 def tela_principal():
     user = st.session_state["user"]
 
-    # SIDEBAR
-    st.sidebar.title("👤 Usuário")
-    st.sidebar.write(f"**Nome:** {user['nome']}")
-    st.sidebar.write(f"**Perfil:** {user['perfil']}")
+    with st.sidebar:
+        st.subheader("Usuário")
+        st.write(f"Nome: {user['nome']}")
+        st.write(f"Perfil: {user['perfil']}")
 
-    menu = st.sidebar.radio(
-        "Menu",
-        ["Dashboard", "Estoque", "Lançamentos", "Usuários", "Sair"]
-    )
+        menu = st.radio("Menu", [
+            "Dashboard",
+            "Estoque",
+            "Lançamentos",
+            "Usuários",
+            "Sair"
+        ])
 
-    # ROTAS
     if menu == "Dashboard":
         tela_dashboard(user)
 
@@ -58,12 +50,9 @@ def tela_principal():
         tela_usuarios(user)
 
     elif menu == "Sair":
-        del st.session_state["user"]
+        st.session_state.clear()
         st.rerun()
 
-# ==========================
-# CONTROLE DE SESSÃO
-# ==========================
 if "user" not in st.session_state:
     tela_login()
 else:

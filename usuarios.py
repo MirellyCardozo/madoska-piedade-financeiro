@@ -1,13 +1,14 @@
 import streamlit as st
-from auth import criar_usuario
+import pandas as pd
 from database import executar
+from passlib.hash import pbkdf2_sha256
 
 def tela_usuarios(user):
     if user["perfil"] != "admin":
-        st.warning("Acesso restrito ao administrador")
+        st.error("Acesso restrito ao administrador")
         return
 
-    st.title("👥 Usuários")
+    st.title("👤 Usuários")
 
     nome = st.text_input("Nome")
     usuario = st.text_input("Usuário")
@@ -15,16 +16,28 @@ def tela_usuarios(user):
     perfil = st.selectbox("Perfil", ["admin", "usuario"])
 
     if st.button("Criar usuário"):
-        criar_usuario(nome, usuario, senha, perfil)
-        st.success("Usuário criado")
+        hash_senha = pbkdf2_sha256.hash(senha)
+
+        executar("""
+            INSERT INTO usuarios (nome, usuario, senha, perfil)
+            VALUES (:n, :u, :s, :p)
+        """, {
+            "n": nome,
+            "u": usuario,
+            "s": hash_senha,
+            "p": perfil
+        })
+        st.success("Usuário criado!")
         st.rerun()
 
-    st.subheader("📋 Usuários cadastrados")
+    rows = executar("""
+        SELECT id, nome, usuario, perfil
+        FROM usuarios
+        ORDER BY nome
+    """, fetchall=True)
 
-    usuarios = executar(
-        "SELECT nome, usuario, perfil FROM usuarios ORDER BY nome",
-        fetchall=True
-    )
-
-    for u in usuarios:
-        st.write(f"**{u['nome']}** | {u['usuario']} | {u['perfil']}")
+    if rows:
+        df = pd.DataFrame(rows, columns=[
+            "ID", "Nome", "Usuário", "Perfil"
+        ])
+        st.dataframe(df, use_container_width=True)
