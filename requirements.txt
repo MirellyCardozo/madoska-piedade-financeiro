@@ -1,7 +1,8 @@
 streamlit
-pandas
 sqlalchemy
 psycopg2-binary
-fpdf
-pytz
+pandas
+fpdf2
+python-dotenv
+passlib
 matplotlib
