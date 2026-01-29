@@ -1,10 +1,15 @@
+import hashlib
 from database import executar
-from passlib.hash import pbkdf2_sha256
 
+# ==========================
+# HASH SIMPLES E ESTÁVEL
+# ==========================
+def gerar_hash(senha: str) -> str:
+    return hashlib.sha256(senha.encode("utf-8")).hexdigest()
 
-# =========================
-# AUTENTICAÇÃO
-# =========================
+# ==========================
+# LOGIN
+# ==========================
 def autenticar(usuario, senha):
     result = executar(
         """
@@ -19,26 +24,18 @@ def autenticar(usuario, senha):
     if not result:
         return None
 
-    user = {
-        "id": result[0],
-        "nome": result[1],
-        "usuario": result[2],
-        "senha": result[3],
-        "perfil": result[4]
-    }
+    senha_hash = gerar_hash(senha)
 
-    # Verifica senha
-    if pbkdf2_sha256.verify(senha, user["senha"]):
-        return user
+    if senha_hash == result["senha"]:
+        return result
 
     return None
 
-
-# =========================
+# ==========================
 # CRIAR USUÁRIO
-# =========================
+# ==========================
 def criar_usuario(nome, usuario, senha, perfil):
-    senha_hash = pbkdf2_sha256.hash(senha)
+    senha_hash = gerar_hash(senha)
 
     executar(
         """
