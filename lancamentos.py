@@ -47,6 +47,7 @@ def tela_lancamentos(user):
             valor = st.number_input("Valor (R$)", min_value=0.0, step=0.01, format="%.2f")
 
         descricao = st.text_area("Descrição")
+        tipo = st.selectbox("Tipo", ["Entrada", "Saída"])
 
         salvar = st.form_submit_button("💾 Salvar lançamento")
 
@@ -60,18 +61,18 @@ def tela_lancamentos(user):
 
         executar(
             """
-            INSERT INTO lancamentos
-            (data, descricao, valor, categoria, pagamento, usuario_id)
+            INSERT INTO registros
+            (data, tipo, descricao, categoria, pagamento, valor, observacoes)
             VALUES
-            (:data, :descricao, :valor, :categoria, :pagamento, :usuario_id)
+            (:data, :tipo, :descricao, :categoria, :pagamento, :valor, '')
             """,
             {
-                "data": str(data),
+                "data": data.strftime("%d/%m/%Y"),
+                "tipo": tipo,
                 "descricao": descricao,
-                "valor": float(valor),
                 "categoria": categoria,
                 "pagamento": pagamento,
-                "usuario_id": user["id"]
+                "valor": float(valor)
             }
         )
 
@@ -89,11 +90,12 @@ def tela_lancamentos(user):
         SELECT
             id,
             data,
+            tipo,
             descricao,
             valor,
             categoria,
             pagamento
-        FROM lancamentos
+        FROM registros
         ORDER BY id DESC
         """,
         fetchall=True
@@ -105,17 +107,17 @@ def tela_lancamentos(user):
 
     for r in registros:
         with st.expander(
-            f"{r[1]} | {r[3]:.2f} | {r[4]} | {r[5]}"
+            f"{r['data']} | {r['tipo']} | R$ {float(r['valor']):.2f} | {r['categoria']}"
         ):
-            st.write(f"**Descrição:** {r[2]}")
-            st.write(f"**Categoria:** {r[4]}")
-            st.write(f"**Pagamento:** {r[5]}")
-            st.write(f"**Valor:** R$ {r[3]:.2f}")
+            st.write(f"**Descrição:** {r['descricao']}")
+            st.write(f"**Categoria:** {r['categoria']}")
+            st.write(f"**Pagamento:** {r['pagamento']}")
+            st.write(f"**Valor:** R$ {float(r['valor']):.2f}")
 
-            if st.button("🗑️ Excluir", key=f"del_{r[0]}"):
+            if st.button("🗑️ Excluir", key=f"del_{r['id']}"):
                 executar(
-                    "DELETE FROM lancamentos WHERE id = :id",
-                    {"id": r[0]}
+                    "DELETE FROM registros WHERE id = :id",
+                    {"id": r["id"]}
                 )
                 st.success("Lançamento excluído")
                 st.rerun()
