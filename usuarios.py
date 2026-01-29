@@ -1,12 +1,13 @@
 import streamlit as st
+from auth import criar_usuario
 from database import executar
 
 def tela_usuarios(user):
-    st.title("👥 Usuários")
-
     if user["perfil"] != "admin":
-        st.warning("Apenas administradores podem gerenciar usuários.")
+        st.warning("Acesso restrito ao administrador")
         return
+
+    st.title("👥 Usuários")
 
     nome = st.text_input("Nome")
     usuario = st.text_input("Usuário")
@@ -14,34 +15,16 @@ def tela_usuarios(user):
     perfil = st.selectbox("Perfil", ["admin", "usuario"])
 
     if st.button("Criar usuário"):
-        executar(
-            """
-            INSERT INTO usuarios (nome, usuario, senha, perfil)
-            VALUES (:n, :u, :s, :p)
-            """,
-            {
-                "n": nome,
-                "u": usuario,
-                "s": senha,
-                "p": perfil
-            }
-        )
-        st.success("Usuário criado!")
+        criar_usuario(nome, usuario, senha, perfil)
+        st.success("Usuário criado")
         st.rerun()
 
-    st.divider()
-    st.subheader("Usuários cadastrados")
+    st.subheader("📋 Usuários cadastrados")
 
     usuarios = executar(
-        "SELECT id, nome, usuario, perfil FROM usuarios ORDER BY nome",
+        "SELECT nome, usuario, perfil FROM usuarios ORDER BY nome",
         fetchall=True
     )
 
     for u in usuarios:
-        with st.expander(f"{u.nome} ({u.usuario}) - {u.perfil}"):
-            if st.button("🗑 Excluir", key=f"u{u.id}"):
-                executar(
-                    "DELETE FROM usuarios WHERE id = :id",
-                    {"id": u.id}
-                )
-                st.rerun()
+        st.write(f"**{u['nome']}** | {u['usuario']} | {u['perfil']}")
