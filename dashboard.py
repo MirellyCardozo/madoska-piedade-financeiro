@@ -132,11 +132,12 @@ def tela_dashboard(user):
     st.subheader("📥 Exportar relatório")
 
     if st.button("Gerar PDF"):
-        pdf_bytes = gerar_pdf(df_filtro, mes, ano, saldo)
+        pdf_raw = gerar_pdf(df_filtro, mes, ano, saldo)
+
 
         st.download_button(
-            label="Baixar relatório em PDF",
-            data=pdf_bytes,
-            file_name=f"relatorio_{mes}_{ano}.pdf",
-            mime="application/pdf"
-        )
+        label="Baixar relatório em PDF",
+        data=bytes(pdf_raw),
+        file_name=f"relatorio_{mes}_{ano}.pdf",
+        mime="application/pdf"
+    )
