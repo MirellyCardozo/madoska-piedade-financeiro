@@ -13,59 +13,70 @@ PAGAMENTOS = ["Pix", "Cartão", "Dinheiro", "Boleto", "Transferência"]
 def tela_lancamentos(user):
     st.title("💰 Lançamentos Financeiros")
 
-    col1, col2 = st.columns(2)
+    col1, col2, col3 = st.columns(3)
 
     with col1:
         data = st.date_input("Data", value=date.today())
         descricao = st.text_input("Descrição")
-        categoria = st.selectbox("Categoria", CATEGORIAS)
 
     with col2:
-        valor = st.number_input("Valor", min_value=0.0, step=0.01)
-        tipo = st.selectbox("Tipo", ["Entrada", "Saída"])
+        categoria = st.selectbox("Categoria", CATEGORIAS)
         pagamento = st.selectbox("Forma de pagamento", PAGAMENTOS)
 
+    with col3:
+        tipo = st.selectbox("Tipo", ["Entrada", "Saída"])
+        valor = st.number_input("Valor", min_value=0.0, step=0.01)
+
     if st.button("Salvar lançamento"):
-        executar("""
-            INSERT INTO lancamentos
-            (user_id, data, descricao, categoria, valor, tipo, pagamento)
-            VALUES (:u, :d, :desc, :cat, :v, :t, :p)
-        """, {
-            "u": user["id"],
-            "d": data,
-            "desc": descricao,
-            "cat": categoria,
-            "v": valor,
-            "t": tipo,
-            "p": pagamento
-        })
-        st.success("Lançamento salvo!")
+        executar(
+            """
+            INSERT INTO lancamentos (data, descricao, categoria, tipo, valor, pagamento, usuario_id)
+            VALUES (:data, :descricao, :categoria, :tipo, :valor, :pagamento, :usuario_id)
+            """,
+            {
+                "data": data,
+                "descricao": descricao,
+                "categoria": categoria,
+                "tipo": tipo,
+                "valor": valor,
+                "pagamento": pagamento,
+                "usuario_id": user["id"]
+            }
+        )
+        st.success("Lançamento salvo com sucesso")
         st.rerun()
 
     st.divider()
-    st.subheader("📋 Registros")
+    st.subheader("📋 Lançamentos registrados")
 
-    rows = executar("""
-        SELECT id, data, descricao, categoria, valor, tipo, pagamento
+    rows = executar(
+        """
+        SELECT id, data, descricao, categoria, tipo, valor, pagamento
         FROM lancamentos
-        WHERE user_id = :u
+        WHERE usuario_id = :uid
         ORDER BY data DESC
-    """, {"u": user["id"]}, fetchall=True)
+        """,
+        {"uid": user["id"]},
+        fetchall=True
+    )
 
     if not rows:
-        st.info("Nenhum lançamento registrado")
+        st.info("Nenhum lançamento encontrado")
         return
 
-    df = pd.DataFrame(rows, columns=[
-        "ID", "Data", "Descrição", "Categoria",
-        "Valor", "Tipo", "Pagamento"
-    ])
+    df = pd.DataFrame(
+        rows,
+        columns=["ID", "Data", "Descrição", "Categoria", "Tipo", "Valor", "Pagamento"]
+    )
 
     st.dataframe(df, use_container_width=True)
 
-    excluir_id = st.number_input("ID para excluir", min_value=1, step=1)
+    excluir = st.selectbox("Excluir lançamento (ID)", df["ID"])
 
-    if st.button("Excluir lançamento"):
-        executar("DELETE FROM lancamentos WHERE id = :id", {"id": excluir_id})
+    if st.button("🗑️ Excluir"):
+        executar(
+            "DELETE FROM lancamentos WHERE id = :id AND usuario_id = :uid",
+            {"id": excluir, "uid": user["id"]}
+        )
         st.success("Lançamento excluído")
         st.rerun()

@@ -2,16 +2,19 @@ from database import executar
 from passlib.hash import pbkdf2_sha256
 
 def autenticar(usuario, senha):
-    user = executar(
-        "SELECT id, nome, usuario, senha, perfil FROM usuarios WHERE usuario = :u",
-        {"u": usuario},
-        fetchone=True
-    )
+    query = """
+    SELECT id, nome, usuario, senha, perfil
+    FROM usuarios
+    WHERE usuario = :usuario
+    """
+    user = executar(query, {"usuario": usuario}, fetchone=True)
 
     if not user:
         return None
 
-    if pbkdf2_sha256.verify(senha, user[3]):
+    senha_hash = user[3]
+
+    if pbkdf2_sha256.verify(senha, senha_hash):
         return {
             "id": user[0],
             "nome": user[1],

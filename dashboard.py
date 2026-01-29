@@ -4,74 +4,92 @@ import matplotlib.pyplot as plt
 from fpdf import FPDF
 from database import executar
 from datetime import datetime
-
-def carregar_lancamentos(user_id):
-    return executar("""
-        SELECT data, descricao, categoria, valor, tipo
-        FROM lancamentos
-        WHERE user_id = :u
-        ORDER BY data DESC
-    """, {"u": user_id}, fetchall=True)
+import io
 
 def gerar_pdf(df, entradas, saidas, saldo):
     pdf = FPDF()
     pdf.add_page()
 
     pdf.set_font("Arial", "B", 14)
-    pdf.cell(0, 10, "Relatório Financeiro - Madoska", ln=True)
+    pdf.cell(0, 10, "Relatório Financeiro - Madoska Piedade", ln=True)
 
     pdf.set_font("Arial", size=10)
-    pdf.cell(0, 10, f"Entradas: R$ {entradas:.2f}", ln=True)
-    pdf.cell(0, 10, f"Saídas: R$ {saidas:.2f}", ln=True)
-    pdf.cell(0, 10, f"Saldo: R$ {saldo:.2f}", ln=True)
+    pdf.cell(0, 8, f"Gerado em: {datetime.now().strftime('%d/%m/%Y %H:%M')}", ln=True)
 
     pdf.ln(5)
+    pdf.cell(0, 8, f"Entradas: R$ {entradas:.2f}", ln=True)
+    pdf.cell(0, 8, f"Saídas: R$ {saidas:.2f}", ln=True)
+    pdf.cell(0, 8, f"Saldo: R$ {saldo:.2f}", ln=True)
+
+    pdf.ln(10)
 
     for _, row in df.iterrows():
-        linha = f"{row['Data']} | {row['Categoria']} | {row['Tipo']} | R$ {row['Valor']}"
+        linha = f"{row['Data']} | {row['Descrição']} | {row['Categoria']} | R$ {row['Valor']:.2f}"
         pdf.multi_cell(0, 8, linha)
 
-    return pdf.output(dest="S").encode("latin-1")
+    buffer = io.BytesIO()
+    pdf.output(buffer)
+    return buffer.getvalue()
+
 
 def tela_dashboard(user):
     st.title("📊 Dashboard Financeiro")
 
-    rows = carregar_lancamentos(user["id"])
+    rows = executar(
+        """
+        SELECT data, descricao, categoria, tipo, valor
+        FROM lancamentos
+        WHERE usuario_id = :uid
+        ORDER BY data DESC
+        """,
+        {"uid": user["id"]},
+        fetchall=True
+    )
 
     if not rows:
-        st.info("Nenhum dado financeiro ainda")
+        st.info("Nenhum lançamento para exibir")
         return
 
-    df = pd.DataFrame(rows, columns=[
-        "Data", "Descrição", "Categoria", "Valor", "Tipo"
-    ])
-
-    df["Valor"] = pd.to_numeric(df["Valor"])
+    df = pd.DataFrame(
+        rows,
+        columns=["Data", "Descrição", "Categoria", "Tipo", "Valor"]
+    )
 
     entradas = df[df["Tipo"] == "Entrada"]["Valor"].sum()
     saidas = df[df["Tipo"] == "Saída"]["Valor"].sum()
     saldo = entradas - saidas
 
-    col1, col2, col3 = st.columns(3)
-    col1.metric("Entradas", f"R$ {entradas:.2f}")
-    col2.metric("Saídas", f"R$ {saidas:.2f}")
-    col3.metric("Saldo", f"R$ {saldo:.2f}")
+    c1, c2, c3 = st.columns(3)
+    c1.metric("Entradas", f"R$ {entradas:.2f}")
+    c2.metric("Saídas", f"R$ {saidas:.2f}")
+    c3.metric("Saldo", f"R$ {saldo:.2f}")
 
-    st.subheader("📈 Gastos por Categoria")
-    resumo = df[df["Tipo"] == "Saída"].groupby("Categoria")["Valor"].sum()
+    st.divider()
 
-    if not resumo.empty:
+    st.subheader("📊 Gastos por categoria")
+
+    gastos = (
+        df[df["Tipo"] == "Saída"]
+        .groupby("Categoria")["Valor"]
+        .sum()
+    )
+
+    if not gastos.empty:
         fig, ax = plt.subplots()
-        resumo.plot(kind="bar", ax=ax)
+        gastos.plot(kind="bar", ax=ax)
         st.pyplot(fig)
+    else:
+        st.info("Sem gastos para exibir gráfico")
 
+    st.divider()
     st.subheader("📄 Exportar relatório")
 
-    pdf_bytes = gerar_pdf(df, entradas, saidas, saldo)
+    if st.button("Gerar PDF"):
+        pdf_bytes = gerar_pdf(df, entradas, saidas, saldo)
 
-    st.download_button(
-        label="Baixar relatório em PDF",
-        data=pdf_bytes,
-        file_name=f"relatorio_{datetime.now().date()}.pdf",
-        mime="application/pdf"
-    )
+        st.download_button(
+            "📥 Baixar relatório em PDF",
+            data=pdf_bytes,
+            file_name="relatorio_financeiro.pdf",
+            mime="application/pdf"
+        )
