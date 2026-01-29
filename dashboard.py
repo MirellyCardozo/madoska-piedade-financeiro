@@ -28,12 +28,13 @@ def gerar_pdf(df, mes, ano, total):
 
     pdf.set_font("Arial", "", 10)
     for _, row in df.iterrows():
-        pdf.cell(40, 8, str(row["data"]))
+        pdf.cell(40, 8, str(row["data"])[:10])
         pdf.cell(60, 8, str(row["descricao"])[:25])
         pdf.cell(40, 8, str(row["categoria"]))
         pdf.cell(40, 8, f'R$ {float(row["valor"]):.2f}', ln=True)
 
-    return pdf.output(dest="S").encode("latin-1")
+    # fpdf2 JÁ retorna bytes
+    return pdf.output(dest="S")
 
 # ==========================
 # DASHBOARD
