@@ -2,13 +2,12 @@ import streamlit as st
 import pandas as pd
 from fpdf import FPDF
 from datetime import datetime
-
 from database import executar
 
 
-# ============================
+# ==========================
 # GERAR PDF
-# ============================
+# ==========================
 def gerar_pdf(df, mes, ano, saldo):
     pdf = FPDF()
     pdf.set_auto_page_break(auto=True, margin=15)
@@ -27,7 +26,7 @@ def gerar_pdf(df, mes, ano, saldo):
     pdf.ln(5)
 
     # =======================
-    # TABELA DE LANÇAMENTOS
+    # TABELA
     # =======================
     pdf.set_font("Arial", "B", 9)
 
@@ -58,11 +57,7 @@ def gerar_pdf(df, mes, ano, saldo):
     gastos = df[df["tipo"] == "Saída"]
 
     if not gastos.empty:
-        resumo = (
-            gastos.groupby("categoria")["valor"]
-            .sum()
-            .reset_index()
-        )
+        resumo = gastos.groupby("categoria")["valor"].sum().reset_index()
 
         pdf.set_font("Arial", "B", 9)
         pdf.cell(80, 8, "Categoria", border=1)
@@ -80,113 +75,130 @@ def gerar_pdf(df, mes, ano, saldo):
 
         pdf.ln(5)
         pdf.set_font("Arial", "B", 10)
-        pdf.cell(80, 8, "TOTAL GERAL DE GASTOS", border=1)
+        pdf.cell(80, 8, "TOTAL GERAL", border=1)
         pdf.cell(40, 8, f"R$ {total_geral:.2f}", border=1)
     else:
         pdf.set_font("Arial", "", 9)
-        pdf.cell(0, 8, "Nenhum gasto registrado neste período.", ln=True)
+        pdf.cell(0, 8, "Nenhum gasto registrado.", ln=True)
 
-    return pdf.output(dest="S")
+    # Streamlit precisa de bytes, não bytearray
+    return bytes(pdf.output(dest="S"))
 
 
-# ============================
-# DASHBOARD PRINCIPAL
-# ============================
+# ==========================
+# TELA DASHBOARD
+# ==========================
 def tela_dashboard(user):
     st.title("📊 Dashboard Financeiro")
 
-    uid = user["id"]
+    user_id = user["id"]
 
-    # =======================
-    # FILTROS
-    # =======================
+    # ==========================
+    # FILTRO
+    # ==========================
     col1, col2 = st.columns(2)
 
     with col1:
-        mes = st.selectbox("Mês", list(range(1, 13)), index=datetime.now().month - 1)
+        mes = st.selectbox(
+            "Mês",
+            list(range(1, 13)),
+            index=datetime.now().month - 1
+        )
 
     with col2:
-        ano = st.selectbox("Ano", list(range(2024, 2031)), index=1)
+        ano = st.selectbox(
+            "Ano",
+            list(range(2023, datetime.now().year + 2)),
+            index=len(list(range(2023, datetime.now().year + 2))) - 2
+        )
 
-    # =======================
+    # ==========================
     # BUSCAR DADOS
-    # =======================
+    # ==========================
     query = """
         SELECT data, descricao, categoria, tipo, valor
         FROM lancamentos
-        WHERE usuario_id = :uid
-        AND EXTRACT(MONTH FROM data) = :mes
-        AND EXTRACT(YEAR FROM data) = :ano
+        WHERE usuario_id = %(uid)s
+        AND EXTRACT(MONTH FROM data) = %(mes)s
+        AND EXTRACT(YEAR FROM data) = %(ano)s
         ORDER BY data DESC
     """
 
     rows = executar(
         query,
-        {"uid": uid, "mes": mes, "ano": ano},
+        {
+            "uid": user_id,
+            "mes": mes,
+            "ano": ano
+        },
         fetchall=True
     )
 
     df = pd.DataFrame(rows, columns=["data", "descricao", "categoria", "tipo", "valor"])
 
-    # =======================
-    # TOTAIS
-    # =======================
+    # ==========================
+    # CONVERSÃO DE TIPOS
+    # ==========================
+    if not df.empty:
+        df["valor"] = pd.to_numeric(df["valor"], errors="coerce").fillna(0)
+        df["data"] = pd.to_datetime(df["data"]).dt.date
+
+    # ==========================
+    # MÉTRICAS
+    # ==========================
     entradas = df[df["tipo"] == "Entrada"]["valor"].sum() if not df.empty else 0
     saidas = df[df["tipo"] == "Saída"]["valor"].sum() if not df.empty else 0
     saldo = entradas - saidas
 
-    # =======================
-    # CARDS
-    # =======================
-    c1, c2, c3 = st.columns(3)
+    col1, col2, col3 = st.columns(3)
 
-    c1.metric("💰 Entradas", f"R$ {entradas:.2f}")
-    c2.metric("💸 Saídas", f"R$ {saidas:.2f}")
-    c3.metric("📊 Saldo", f"R$ {saldo:.2f}")
+    col1.metric("💰 Entradas", f"R$ {entradas:.2f}")
+    col2.metric("💸 Saídas", f"R$ {saidas:.2f}")
+    col3.metric("📊 Saldo", f"R$ {saldo:.2f}")
 
     st.divider()
 
-    # =======================
+    # ==========================
+    # TABELA
+    # ==========================
+    st.subheader("📄 Lançamentos")
+
+    if df.empty:
+        st.info("Nenhum lançamento encontrado para este período.")
+    else:
+        st.dataframe(df, use_container_width=True)
+
+    # ==========================
     # GRÁFICO
-    # =======================
-    st.subheader("📉 Gastos por Categoria")
+    # ==========================
+    st.subheader("📊 Gastos por categoria")
 
     gastos = df[df["tipo"] == "Saída"]
 
-    if gastos.empty:
-        st.info("Nenhum gasto registrado neste período.")
-    else:
-        resumo = (
-            gastos.groupby("categoria")["valor"]
-            .sum()
-            .reset_index()
-        )
-
+    if not gastos.empty:
+        resumo = gastos.groupby("categoria")["valor"].sum().reset_index()
         resumo = resumo.set_index("categoria")
 
         st.bar_chart(resumo)
+    else:
+        st.info("Nenhum gasto para exibir no gráfico.")
 
-    # =======================
-    # TABELA
-    # =======================
-    st.subheader("📋 Lançamentos")
-    st.dataframe(df, use_container_width=True)
-
-    # =======================
-    # EXPORTAR PDF
-    # =======================
     st.divider()
-    st.subheader("📄 Exportar relatório")
+
+    # ==========================
+    # EXPORTAR PDF
+    # ==========================
+    st.subheader("📥 Exportar relatório")
 
     if not df.empty:
         if st.button("Gerar PDF"):
             pdf_bytes = gerar_pdf(df, mes, ano, saldo)
 
             st.download_button(
-                label="⬇️ Baixar relatório em PDF",
+                label="📄 Baixar relatório em PDF",
                 data=pdf_bytes,
                 file_name=f"relatorio_{mes}_{ano}.pdf",
                 mime="application/pdf"
             )
     else:
-        st.info("Sem dados para gerar relatório.")
+        st.info("Não há dados para gerar o relatório.")
