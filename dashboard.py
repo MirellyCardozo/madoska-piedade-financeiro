@@ -13,9 +13,7 @@ def gerar_pdf(df, mes, ano, saldo):
     pdf.set_auto_page_break(auto=True, margin=15)
     pdf.add_page()
 
-    # =======================
     # TÍTULO
-    # =======================
     pdf.set_font("Arial", "B", 14)
     pdf.cell(0, 10, "Relatório Financeiro - Madoska Piedade", ln=True, align="C")
 
@@ -25,11 +23,8 @@ def gerar_pdf(df, mes, ano, saldo):
 
     pdf.ln(5)
 
-    # =======================
     # TABELA
-    # =======================
     pdf.set_font("Arial", "B", 9)
-
     headers = ["Data", "Descrição", "Categoria", "Tipo", "Valor"]
     col_widths = [30, 60, 35, 20, 25]
 
@@ -38,7 +33,6 @@ def gerar_pdf(df, mes, ano, saldo):
     pdf.ln()
 
     pdf.set_font("Arial", "", 8)
-
     for _, row in df.iterrows():
         pdf.cell(col_widths[0], 8, str(row["data"]), border=1)
         pdf.cell(col_widths[1], 8, str(row["descricao"])[:30], border=1)
@@ -81,12 +75,12 @@ def gerar_pdf(df, mes, ano, saldo):
         pdf.set_font("Arial", "", 9)
         pdf.cell(0, 8, "Nenhum gasto registrado.", ln=True)
 
-    # Streamlit precisa de bytes, não bytearray
+    # Streamlit precisa de BYTES, não bytearray
     return bytes(pdf.output(dest="S"))
 
 
 # ==========================
-# TELA DASHBOARD
+# DASHBOARD
 # ==========================
 def tela_dashboard(user):
     st.title("📊 Dashboard Financeiro")
@@ -99,11 +93,7 @@ def tela_dashboard(user):
     col1, col2 = st.columns(2)
 
     with col1:
-        mes = st.selectbox(
-            "Mês",
-            list(range(1, 13)),
-            index=datetime.now().month - 1
-        )
+        mes = st.selectbox("Mês", list(range(1, 13)), index=datetime.now().month - 1)
 
     with col2:
         ano = st.selectbox(
@@ -113,14 +103,14 @@ def tela_dashboard(user):
         )
 
     # ==========================
-    # BUSCAR DADOS
+    # QUERY CORRETA SQLALCHEMY
     # ==========================
     query = """
         SELECT data, descricao, categoria, tipo, valor
         FROM lancamentos
-        WHERE usuario_id = %(uid)s
-        AND EXTRACT(MONTH FROM data) = %(mes)s
-        AND EXTRACT(YEAR FROM data) = %(ano)s
+        WHERE usuario_id = :uid
+          AND EXTRACT(MONTH FROM data) = :mes
+          AND EXTRACT(YEAR FROM data) = :ano
         ORDER BY data DESC
     """
 
@@ -137,7 +127,7 @@ def tela_dashboard(user):
     df = pd.DataFrame(rows, columns=["data", "descricao", "categoria", "tipo", "valor"])
 
     # ==========================
-    # CONVERSÃO DE TIPOS
+    # CONVERSÕES
     # ==========================
     if not df.empty:
         df["valor"] = pd.to_numeric(df["valor"], errors="coerce").fillna(0)
@@ -151,7 +141,6 @@ def tela_dashboard(user):
     saldo = entradas - saidas
 
     col1, col2, col3 = st.columns(3)
-
     col1.metric("💰 Entradas", f"R$ {entradas:.2f}")
     col2.metric("💸 Saídas", f"R$ {saidas:.2f}")
     col3.metric("📊 Saldo", f"R$ {saldo:.2f}")
@@ -178,7 +167,6 @@ def tela_dashboard(user):
     if not gastos.empty:
         resumo = gastos.groupby("categoria")["valor"].sum().reset_index()
         resumo = resumo.set_index("categoria")
-
         st.bar_chart(resumo)
     else:
         st.info("Nenhum gasto para exibir no gráfico.")
@@ -201,4 +189,4 @@ def tela_dashboard(user):
                 mime="application/pdf"
             )
     else:
-        st.info("Não há dados para gerar o relatório.")
+        st.info("Não há dados para gerar relatório.")
