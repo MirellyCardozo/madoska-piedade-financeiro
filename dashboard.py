@@ -1,89 +1,70 @@
 import streamlit as st
 import pandas as pd
 import matplotlib.pyplot as plt
-from sqlalchemy import text
-from database import engine
-from datetime import datetime
+from database import executar
 from fpdf import FPDF
+from io import BytesIO
+from datetime import datetime
 
-
-def gerar_pdf(df, mes):
+def gerar_pdf(df, resumo):
     pdf = FPDF()
-    pdf.set_auto_page_break(auto=True, margin=15)
     pdf.add_page()
-
     pdf.set_font("Arial", "B", 14)
-    pdf.cell(0, 10, f"Relatório Financeiro - {mes}", ln=True)
+    pdf.cell(0, 10, "Relatório Financeiro", ln=True)
 
-    pdf.set_font("Arial", "", 10)
+    pdf.set_font("Arial", size=10)
+    pdf.ln(5)
+
+    for _, row in resumo.iterrows():
+        pdf.cell(0, 8, f"{row['categoria']}: R$ {row['valor']:.2f}", ln=True)
+
     pdf.ln(5)
 
     for _, row in df.iterrows():
-        linha = f"{row['data']} | {row['tipo']} | {row['descricao']} | {row['categoria']} | R$ {row['valor']}"
-        pdf.multi_cell(0, 6, linha)
+        pdf.cell(0, 8, f"{row['data']} - {row['descricao']} - R$ {row['valor']}", ln=True)
 
-    caminho = f"/tmp/relatorio_{mes}.pdf"
-    pdf.output(caminho)
+    buffer = BytesIO()
+    buffer.write(pdf.output(dest="S").encode("latin-1"))
+    buffer.seek(0)
+    return buffer
 
-    return caminho
+def tela_dashboard(user):
+    st.header("📊 Dashboard Financeiro")
 
-
-def tela_dashboard(usuario=None):
-    st.title("📊 Dashboard Financeiro")
-
-    mes = st.selectbox(
-        "Selecione o mês",
-        [f"{i:02d}/{datetime.now().year}" for i in range(1, 13)]
+    rows = executar(
+        "SELECT data, descricao, categoria, tipo, valor FROM lancamentos",
+        fetchall=True
     )
 
-    mes_num, ano = mes.split("/")
-    mes_num = int(mes_num)
-
-    with engine.begin() as conn:
-        dados = conn.execute(
-            text("""
-                SELECT data, tipo, descricao, categoria, valor
-                FROM registros
-            """)
-        ).fetchall()
-
-    if not dados:
-        st.info("Nenhum gasto registrado ainda.")
+    if not rows:
+        st.info("Nenhum lançamento encontrado")
         return
 
-    df = pd.DataFrame(dados, columns=["data", "tipo", "descricao", "categoria", "valor"])
-    df["data"] = pd.to_datetime(df["data"], errors="coerce")
+    df = pd.DataFrame(rows, columns=["data", "descricao", "categoria", "tipo", "valor"])
 
-    df_mes = df[
-        (df["data"].dt.month == mes_num) &
-        (df["data"].dt.year == int(ano))
-    ]
+    entradas = df[df["tipo"] == "Entrada"]["valor"].sum()
+    saidas = df[df["tipo"] == "Saída"]["valor"].sum()
+    saldo = entradas - saidas
 
-    if df_mes.empty:
-        st.warning("Sem registros para este mês.")
-        return
+    c1, c2, c3 = st.columns(3)
+    c1.metric("Entradas", f"R$ {entradas:.2f}")
+    c2.metric("Saídas", f"R$ {saidas:.2f}")
+    c3.metric("Saldo", f"R$ {saldo:.2f}")
 
-    st.subheader("📈 Gastos por Categoria")
+    resumo = df[df["tipo"] == "Saída"].groupby("categoria")["valor"].sum().reset_index()
 
-    resumo = df_mes.groupby("categoria")["valor"].sum()
+    if not resumo.empty:
+        fig, ax = plt.subplots()
+        ax.bar(resumo["categoria"], resumo["valor"])
+        plt.xticks(rotation=45)
+        st.pyplot(fig)
 
-    fig, ax = plt.subplots()
-    resumo.plot(kind="bar", ax=ax)
-    ax.set_ylabel("Valor (R$)")
-    ax.set_xlabel("Categoria")
-    ax.set_title("Total por Categoria")
-
-    st.pyplot(fig)
-
-    st.divider()
-    st.subheader("📄 Exportar Relatório")
-
+    st.subheader("📄 Exportar relatório")
     if st.button("Gerar PDF"):
-        caminho = gerar_pdf(df_mes, mes)
-        with open(caminho, "rb") as f:
-            st.download_button(
-                "⬇️ Baixar relatório em PDF",
-                f,
-                file_name=f"relatorio_{mes}.pdf",
-                mime="application/pdf"
-            )
+        pdf = gerar_pdf(df, resumo)
+        st.download_button(
+            "Baixar PDF",
+            data=pdf,
+            file_name="relatorio_financeiro.pdf",
+            mime="application/pdf"
+        )

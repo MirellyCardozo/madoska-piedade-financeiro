@@ -1,68 +1,47 @@
 import streamlit as st
-from sqlalchemy import text
-from database import engine
+from database import executar
 from datetime import date
 
+CATEGORIAS = ["Aluguel", "Fornecedor", "Energia", "Internet", "Funcionários", "Impostos", "Manutenção", "Marketing", "Outros"]
+PAGAMENTOS = ["Pix", "Cartão Débito","Cartão Crédito", "Dinheiro", "Boleto", "Transferência"]
 
-def tela_lancamentos():
-    st.title("💰 Lançamentos Financeiros")
+def tela_lancamentos(user):
+    st.header("📋 Lançamentos Financeiros")
 
-    with st.expander("➕ Novo Lançamento"):
+    with st.form("novo_lancamento"):
         data = st.date_input("Data", value=date.today())
-        tipo = st.selectbox("Tipo", ["Entrada", "Saída"])
         descricao = st.text_input("Descrição")
-        categoria = st.text_input("Categoria")
-        pagamento = st.selectbox("Forma de pagamento", ["Dinheiro", "Pix", "Cartão", "Outro"])
-        valor = st.number_input("Valor", min_value=0.0, format="%.2f")
-        observacoes = st.text_area("Observações")
+        categoria = st.selectbox("Categoria", CATEGORIAS)
+        tipo = st.selectbox("Tipo", ["Entrada", "Saída"])
+        valor = st.number_input("Valor", min_value=0.01)
+        pagamento = st.selectbox("Forma de pagamento", PAGAMENTOS)
 
-        if st.button("Salvar"):
-            with engine.begin() as conn:
-                conn.execute(
-                    text("""
-                        INSERT INTO registros
-                        (data, tipo, descricao, categoria, pagamento, valor, observacoes)
-                        VALUES
-                        (:data, :tipo, :descricao, :categoria, :pagamento, :valor, :observacoes)
-                    """),
-                    {
-                        "data": str(data),
-                        "tipo": tipo,
-                        "descricao": descricao,
-                        "categoria": categoria,
-                        "pagamento": pagamento,
-                        "valor": valor,
-                        "observacoes": observacoes
-                    }
-                )
-            st.success("Lançamento salvo!")
-            st.experimental_rerun()
+        if st.form_submit_button("Salvar"):
+            executar(
+                """
+                INSERT INTO lancamentos
+                (data, descricao, categoria, tipo, valor, pagamento, usuario_id)
+                VALUES (:d, :desc, :cat, :tipo, :val, :pag, :uid)
+                """,
+                {
+                    "d": data,
+                    "desc": descricao,
+                    "cat": categoria,
+                    "tipo": tipo,
+                    "val": valor,
+                    "pag": pagamento,
+                    "uid": user["id"]
+                }
+            )
+            st.success("Lançamento salvo")
+            st.rerun()
 
-    st.divider()
-    st.subheader("📋 Registros")
+    st.subheader("Lançamentos cadastrados")
 
-    with engine.begin() as conn:
-        dados = conn.execute(
-            text("SELECT * FROM registros ORDER BY data DESC")
-        ).fetchall()
+    rows = executar(
+        "SELECT id, data, descricao, categoria, tipo, valor FROM lancamentos ORDER BY data DESC",
+        fetchall=True
+    )
 
-    if not dados:
-        st.info("Nenhum lançamento registrado.")
-        return
-
-    for r in dados:
-        col1, col2, col3, col4, col5, col6 = st.columns([2, 2, 3, 2, 2, 1])
-
-        col1.write(r.data)
-        col2.write(r.tipo)
-        col3.write(r.descricao)
-        col4.write(r.categoria)
-        col5.write(f"R$ {float(r.valor):.2f}")
-
-        if col6.button("🗑️", key=f"del_reg_{r.id}"):
-            with engine.begin() as conn:
-                conn.execute(
-                    text("DELETE FROM registros WHERE id = :id"),
-                    {"id": r.id}
-                )
-            st.experimental_rerun()
+    if rows:
+        st.dataframe(rows, use_container_width=True)
