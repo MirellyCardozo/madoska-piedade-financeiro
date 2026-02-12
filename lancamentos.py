@@ -12,7 +12,7 @@ def tela_lancamentos(usuario):
     with st.form("novo_lancamento"):
         data = st.date_input("Data")
         descricao = st.text_input("Descrição")
-        categoria = st.selectbox("Categoria", ["Alimentação", "Aluguel", "Transporte", "Outros"])
+        categoria = st.selectbox("Categoria", ["Fornecedor", "Aluguel", "Energia", "Manutenção", "Funcionários", "Impostos","Outros"])
         tipo = st.selectbox("Tipo", ["Entrada", "Saída"])
         valor = st.number_input("Valor", min_value=0.01, step=0.01)
 
@@ -81,8 +81,8 @@ def tela_lancamentos(usuario):
         nova_descricao = st.text_input("Descrição", lancamento["descricao"])
         nova_categoria = st.selectbox(
             "Categoria",
-            ["Alimentação", "Aluguel", "Transporte", "Outros"],
-            index=["Alimentação", "Aluguel", "Transporte", "Outros"].index(lancamento["categoria"])
+        ["Fornecedor", "Aluguel", "Energia", "Manutenção", "Funcionários", "Impostos","Outros"],
+            index=["Fornecedor", "Aluguel", "Energia", "Manutenção", "Funcionários", "Impostos","Outros"].index(lancamento["categoria"])
         )
         novo_tipo = st.selectbox(
             "Tipo",
