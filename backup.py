@@ -1,34 +1,40 @@
 import os
-import subprocess
 from datetime import datetime
-from dotenv import load_dotenv
+from sqlalchemy import text
+from database import engine
 
-load_dotenv()
 
 def gerar_backup():
-    """
-    Gera backup do banco PostgreSQL (Neon) usando pg_dump
-    Retorna o caminho do arquivo gerado
-    """
-
-    DATABASE_URL = os.getenv("DATABASE_URL")
-
-    if not DATABASE_URL:
-        raise RuntimeError("DATABASE_URL não encontrada no .env")
-
-    data = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
     pasta = "backups"
     os.makedirs(pasta, exist_ok=True)
 
-    arquivo = f"{pasta}/backup_{data}.sql"
+    nome_arquivo = f"backup_{datetime.now().strftime('%Y%m%d_%H%M%S')}.sql"
+    caminho = os.path.join(pasta, nome_arquivo)
 
-    comando = [
-        "pg_dump",
-        DATABASE_URL,
-        "-f",
-        arquivo
-    ]
+    with engine.connect() as conn, open(caminho, "w", encoding="utf-8") as f:
+        tabelas = ["usuarios", "lancamentos", "estoque"]
 
-    subprocess.run(comando, check=True)
+        for tabela in tabelas:
+            f.write(f"\n-- Backup da tabela {tabela}\n")
 
-    return arquivo
+            resultado = conn.execute(text(f"SELECT * FROM {tabela}"))
+            colunas = resultado.keys()
+
+            for linha in resultado.fetchall():
+                valores = []
+
+                for valor in linha:
+                    if valor is None:
+                        valores.append("NULL")
+                    else:
+                        valor_str = str(valor).replace("'", "''")
+                        valores.append(f"'{valor_str}'")
+
+                sql = (
+                    f"INSERT INTO {tabela} ({', '.join(colunas)}) "
+                    f"VALUES ({', '.join(valores)});\n"
+                )
+
+                f.write(sql)
+
+    return caminho
