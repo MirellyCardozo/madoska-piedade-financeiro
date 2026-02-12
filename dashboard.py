@@ -9,39 +9,33 @@ from database import engine
 from backup import gerar_backup
 
 
-# =========================
+# =====================================================
 # PDF
-# =========================
+# =====================================================
 class RelatorioPDF(FPDF):
     def header(self):
         self.set_font("Arial", "B", 14)
-        self.cell(0, 10, "Relatório Financeiro", ln=True, align="C")
+        self.cell(0, 10, "Relatório Financeiro - Madoska Piedade", ln=True, align="C")
         self.ln(5)
 
 
-def gerar_pdf(df, resumo, saldo_anterior, saldo_final, mes, ano):
+def gerar_pdf(df, saldo_anterior, entradas, saidas, saldo_final, mes, ano):
     pdf = RelatorioPDF()
     pdf.add_page()
     pdf.set_auto_page_break(auto=True, margin=15)
     pdf.set_font("Arial", size=10)
 
     pdf.cell(0, 8, f"Período: {mes:02d}/{ano}", ln=True)
-    pdf.ln(3)
+    pdf.ln(2)
 
     pdf.cell(0, 8, f"Saldo anterior: R$ {saldo_anterior:.2f}", ln=True)
+    pdf.cell(0, 8, f"Total de entradas: R$ {entradas:.2f}", ln=True)
+    pdf.cell(0, 8, f"Total de saídas: R$ {saidas:.2f}", ln=True)
     pdf.cell(0, 8, f"Saldo final: R$ {saldo_final:.2f}", ln=True)
-    pdf.ln(5)
 
+    pdf.ln(6)
     pdf.set_font("Arial", "B", 10)
-    pdf.cell(0, 8, "Resumo do mês:", ln=True)
-    pdf.set_font("Arial", size=10)
-
-    for k, v in resumo.items():
-        pdf.cell(0, 8, f"{k}: R$ {v:.2f}", ln=True)
-
-    pdf.ln(5)
-    pdf.set_font("Arial", "B", 10)
-    pdf.cell(0, 8, "Lançamentos:", ln=True)
+    pdf.cell(0, 8, "Lançamentos do mês:", ln=True)
     pdf.set_font("Arial", size=9)
 
     largura = pdf.w - pdf.l_margin - pdf.r_margin
@@ -52,10 +46,10 @@ def gerar_pdf(df, resumo, saldo_anterior, saldo_final, mes, ano):
             f"{row['tipo'].upper()} | "
             f"{row['descricao']} | "
             f"{row['categoria']} | "
-            f"R$ {row['valor']:.2f}"
+            f"R$ {float(row['valor']):.2f}"
         )
         pdf.set_x(pdf.l_margin)
-        pdf.multi_cell(largura, 7, linha)
+        pdf.multi_cell(largura, 6, linha)
 
     buffer = BytesIO()
     pdf.output(buffer)
@@ -63,19 +57,19 @@ def gerar_pdf(df, resumo, saldo_anterior, saldo_final, mes, ano):
     return buffer.getvalue()
 
 
-# =========================
+# =====================================================
 # DASHBOARD
-# =========================
+# =====================================================
 def tela_dashboard(usuario):
     st.title("📊 Dashboard Financeiro")
 
     col1, col2 = st.columns(2)
-    mes = col1.selectbox("Mês", list(range(1, 13)))
+    mes = col1.selectbox("Mês", list(range(1, 13)), index=date.today().month - 1)
     ano = col2.selectbox("Ano", list(range(2023, date.today().year + 1)))
 
-    # -------------------------
-    # SALDO ANTERIOR
-    # -------------------------
+    # -------------------------------------------------
+    # SALDO ANTERIOR (tudo antes do mês selecionado)
+    # -------------------------------------------------
     query_saldo_anterior = text("""
         SELECT
             COALESCE(SUM(
@@ -95,11 +89,16 @@ def tela_dashboard(usuario):
             {"uid": usuario["id"], "mes": mes, "ano": ano}
         ).scalar()
 
-    # -------------------------
+    # -------------------------------------------------
     # LANÇAMENTOS DO MÊS
-    # -------------------------
+    # -------------------------------------------------
     query_mes = text("""
-        SELECT data, descricao, categoria, tipo, valor
+        SELECT
+            data,
+            descricao,
+            categoria,
+            tipo,
+            valor
         FROM lancamentos
         WHERE usuario_id = :uid
           AND EXTRACT(MONTH FROM data) = :mes
@@ -114,62 +113,68 @@ def tela_dashboard(usuario):
             params={"uid": usuario["id"], "mes": mes, "ano": ano}
         )
 
-    # Garantir tipos compatíveis
+    # -------------------------------------------------
+    # CÁLCULOS (CORRIGIDOS DEFINITIVAMENTE)
+    # -------------------------------------------------
+    if df.empty:
+        entradas = 0.0
+        saidas = 0.0
+    else:
+        entradas = df.loc[df["tipo"] == "entrada", "valor"].sum()
+        saidas = df.loc[df["tipo"] == "saida", "valor"].sum()
+
     saldo_anterior = float(saldo_anterior or 0)
     entradas = float(entradas or 0)
     saidas = float(saidas or 0)
 
     saldo_final = saldo_anterior + entradas - saidas
 
-
-    # -------------------------
-    # VISUAL
-    # -------------------------
+    # -------------------------------------------------
+    # INDICADORES
+    # -------------------------------------------------
     c1, c2, c3, c4 = st.columns(4)
     c1.metric("Saldo anterior", f"R$ {saldo_anterior:.2f}")
     c2.metric("Entradas", f"R$ {entradas:.2f}")
     c3.metric("Saídas", f"R$ {saidas:.2f}")
     c4.metric("Saldo final", f"R$ {saldo_final:.2f}")
 
+    # -------------------------------------------------
+    # TABELA
+    # -------------------------------------------------
+    st.subheader("Lançamentos do mês")
+
     if df.empty:
         st.info("Nenhum lançamento neste mês.")
-        return
+    else:
+        st.dataframe(df, use_container_width=True)
 
-    st.subheader("Lançamentos do mês")
-    st.dataframe(df, use_container_width=True)
-
-    resumo = {
-        "Entradas do mês": entradas,
-        "Saídas do mês": saidas,
-        "Resultado do mês": entradas - saidas
-    }
-
-    # -------------------------
+    # -------------------------------------------------
     # PDF
-    # -------------------------
-    st.subheader("📄 Exportar relatório")
+    # -------------------------------------------------
+    st.subheader("📄 Relatório mensal")
 
-    if st.button("Gerar PDF"):
+    if not df.empty and st.button("Gerar PDF"):
         pdf = gerar_pdf(
             df,
-            resumo,
             saldo_anterior,
+            entradas,
+            saidas,
             saldo_final,
             mes,
             ano
         )
 
         st.download_button(
-            "⬇️ Baixar PDF",
+            label="⬇️ Baixar PDF",
             data=pdf,
-            file_name=f"relatorio_{mes}_{ano}.pdf",
+            file_name=f"relatorio_{mes:02d}_{ano}.pdf",
             mime="application/pdf"
         )
 
-    # -------------------------
+    # -------------------------------------------------
     # BACKUP
-    # -------------------------
+    # -------------------------------------------------
     st.divider()
     if st.button("💾 Gerar backup"):
         caminho = gerar_backup()
-        st.success(f"Backup gerado: {caminho}")
+        st.success(f"Backup gerado com sucesso: {caminho}")
