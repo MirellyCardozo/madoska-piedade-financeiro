@@ -3,6 +3,7 @@ import pandas as pd
 from sqlalchemy import text
 from fpdf import FPDF
 from io import BytesIO
+from datetime import date
 
 from database import engine
 from backup import gerar_backup
@@ -18,43 +19,47 @@ class RelatorioPDF(FPDF):
         self.ln(5)
 
 
-def gerar_pdf(df, resumo):
+def gerar_pdf(df, resumo, saldo_anterior, saldo_final, mes, ano):
     pdf = RelatorioPDF()
     pdf.add_page()
     pdf.set_auto_page_break(auto=True, margin=15)
     pdf.set_font("Arial", size=10)
 
-    # ----- Resumo -----
-    pdf.cell(0, 10, "Resumo por categoria:", ln=True)
+    pdf.cell(0, 8, f"Período: {mes:02d}/{ano}", ln=True)
     pdf.ln(3)
 
-    for _, row in resumo.iterrows():
-        texto = f"{row['categoria']}: R$ {row['total']:.2f}"
-        pdf.cell(0, 8, texto, ln=True)
+    pdf.cell(0, 8, f"Saldo anterior: R$ {saldo_anterior:.2f}", ln=True)
+    pdf.cell(0, 8, f"Saldo final: R$ {saldo_final:.2f}", ln=True)
+    pdf.ln(5)
+
+    pdf.set_font("Arial", "B", 10)
+    pdf.cell(0, 8, "Resumo do mês:", ln=True)
+    pdf.set_font("Arial", size=10)
+
+    for k, v in resumo.items():
+        pdf.cell(0, 8, f"{k}: R$ {v:.2f}", ln=True)
 
     pdf.ln(5)
-    pdf.cell(0, 10, "Lançamentos:", ln=True)
-    pdf.ln(3)
+    pdf.set_font("Arial", "B", 10)
+    pdf.cell(0, 8, "Lançamentos:", ln=True)
+    pdf.set_font("Arial", size=9)
 
-    largura_util = pdf.w - pdf.l_margin - pdf.r_margin
+    largura = pdf.w - pdf.l_margin - pdf.r_margin
 
     for _, row in df.iterrows():
         linha = (
             f"{row['data']} | "
+            f"{row['tipo'].upper()} | "
             f"{row['descricao']} | "
             f"{row['categoria']} | "
             f"R$ {row['valor']:.2f}"
         )
-
-        # 🔧 FIX DEFINITIVO DO ERRO
         pdf.set_x(pdf.l_margin)
-        pdf.multi_cell(largura_util, 7, linha)
-        pdf.ln(1)
+        pdf.multi_cell(largura, 7, linha)
 
     buffer = BytesIO()
     pdf.output(buffer)
     buffer.seek(0)
-
     return buffer.getvalue()
 
 
@@ -66,48 +71,74 @@ def tela_dashboard(usuario):
 
     col1, col2 = st.columns(2)
     mes = col1.selectbox("Mês", list(range(1, 13)))
-    ano = col2.selectbox("Ano", list(range(2024, 2031)))
+    ano = col2.selectbox("Ano", list(range(2023, date.today().year + 1)))
 
     # -------------------------
-    # BUSCA DADOS
+    # SALDO ANTERIOR
     # -------------------------
-    query = """
-        SELECT id, data, descricao, categoria, tipo, valor
+    query_saldo_anterior = text("""
+        SELECT
+            COALESCE(SUM(
+                CASE
+                    WHEN tipo = 'entrada' THEN valor
+                    ELSE -valor
+                END
+            ), 0)
+        FROM lancamentos
+        WHERE usuario_id = :uid
+          AND data < DATE(:ano || '-' || :mes || '-01')
+    """)
+
+    with engine.connect() as conn:
+        saldo_anterior = conn.execute(
+            query_saldo_anterior,
+            {"uid": usuario["id"], "mes": mes, "ano": ano}
+        ).scalar()
+
+    # -------------------------
+    # LANÇAMENTOS DO MÊS
+    # -------------------------
+    query_mes = text("""
+        SELECT data, descricao, categoria, tipo, valor
         FROM lancamentos
         WHERE usuario_id = :uid
           AND EXTRACT(MONTH FROM data) = :mes
           AND EXTRACT(YEAR FROM data) = :ano
-        ORDER BY data DESC
-    """
+        ORDER BY data
+    """)
 
     with engine.connect() as conn:
         df = pd.read_sql(
-            text(query),
+            query_mes,
             conn,
             params={"uid": usuario["id"], "mes": mes, "ano": ano}
         )
 
+    entradas = df[df["tipo"] == "entrada"]["valor"].sum()
+    saidas = df[df["tipo"] == "saida"]["valor"].sum()
+    saldo_final = saldo_anterior + entradas - saidas
+
+    # -------------------------
+    # VISUAL
+    # -------------------------
+    c1, c2, c3, c4 = st.columns(4)
+    c1.metric("Saldo anterior", f"R$ {saldo_anterior:.2f}")
+    c2.metric("Entradas", f"R$ {entradas:.2f}")
+    c3.metric("Saídas", f"R$ {saidas:.2f}")
+    c4.metric("Saldo final", f"R$ {saldo_final:.2f}")
+
     if df.empty:
-        st.info("Nenhum lançamento encontrado.")
+        st.info("Nenhum lançamento neste mês.")
         return
 
-    # -------------------------
-    # TABELA
-    # -------------------------
-    st.subheader("Lançamentos")
+    st.subheader("Lançamentos do mês")
     st.dataframe(df, use_container_width=True)
 
-    # -------------------------
-    # RESUMO
-    # -------------------------
-    resumo = (
-        df.groupby("categoria", as_index=False)["valor"]
-        .sum()
-        .rename(columns={"valor": "total"})
-    )
-
-    st.subheader("Resumo por categoria")
-    st.dataframe(resumo, use_container_width=True)
+    resumo = {
+        "Entradas do mês": entradas,
+        "Saídas do mês": saidas,
+        "Resultado do mês": entradas - saidas
+    }
 
     # -------------------------
     # PDF
@@ -115,11 +146,18 @@ def tela_dashboard(usuario):
     st.subheader("📄 Exportar relatório")
 
     if st.button("Gerar PDF"):
-        pdf_bytes = gerar_pdf(df, resumo)
+        pdf = gerar_pdf(
+            df,
+            resumo,
+            saldo_anterior,
+            saldo_final,
+            mes,
+            ano
+        )
 
         st.download_button(
-            label="⬇️ Baixar relatório em PDF",
-            data=pdf_bytes,
+            "⬇️ Baixar PDF",
+            data=pdf,
             file_name=f"relatorio_{mes}_{ano}.pdf",
             mime="application/pdf"
         )
@@ -128,8 +166,6 @@ def tela_dashboard(usuario):
     # BACKUP
     # -------------------------
     st.divider()
-    st.subheader("💾 Backup do banco")
-
-    if st.button("Gerar backup agora"):
+    if st.button("💾 Gerar backup"):
         caminho = gerar_backup()
-        st.success(f"Backup gerado com sucesso: {caminho}")
+        st.success(f"Backup gerado: {caminho}")
