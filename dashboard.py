@@ -114,9 +114,13 @@ def tela_dashboard(usuario):
             params={"uid": usuario["id"], "mes": mes, "ano": ano}
         )
 
-    entradas = df[df["tipo"] == "entrada"]["valor"].sum()
-    saidas = df[df["tipo"] == "saida"]["valor"].sum()
+    # Garantir tipos compatíveis
+    saldo_anterior = float(saldo_anterior or 0)
+    entradas = float(entradas or 0)
+    saidas = float(saidas or 0)
+
     saldo_final = saldo_anterior + entradas - saidas
+
 
     # -------------------------
     # VISUAL
