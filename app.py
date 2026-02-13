@@ -1,23 +1,20 @@
 import streamlit as st
+from auth import tela_login
 from dashboard import tela_dashboard
 from lancamentos import tela_lancamentos
 from estoque import tela_estoque
 from usuarios import tela_usuarios
 
 
-def tela_principal(usuario_id):
+def tela_principal():
     st.sidebar.title("Menu")
 
     menu = st.sidebar.radio(
         "",
-        [
-            "Dashboard",
-            "Lançamentos",
-            "Estoque",
-            "Usuários",
-            "Sair"
-        ]
+        ["Dashboard", "Lançamentos", "Estoque", "Usuários", "Sair"]
     )
+
+    usuario_id = st.session_state["usuario_id"]
 
     if menu == "Dashboard":
         tela_dashboard(usuario_id)
@@ -36,8 +33,8 @@ def tela_principal(usuario_id):
         st.experimental_rerun()
 
 
-# ========= APP =========
+# ========= FLUXO CORRETO =========
 if "usuario_id" not in st.session_state:
-    st.error("Usuário não autenticado")
+    tela_login()
 else:
-    tela_principal(st.session_state["usuario_id"])
+    tela_principal()
