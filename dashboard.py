@@ -33,7 +33,7 @@ def gerar_pdf(df, periodo, saldo_anterior, entradas, saidas, saldo_final):
     pdf.cell(0, 8, "Lançamentos do mês:", ln=True)
 
     pdf.set_font("Arial", "", 9)
-    largura_util = pdf.w - 2 * pdf.l_margin
+    largura = pdf.w - 2 * pdf.l_margin
 
     if df.empty:
         pdf.cell(0, 8, "Nenhum lançamento no período.", ln=True)
@@ -44,17 +44,15 @@ def gerar_pdf(df, periodo, saldo_anterior, entradas, saidas, saldo_final):
                 f"{row['tipo']} | "
                 f"{row['descricao']} | "
                 f"{row['categoria']} | "
-                f"{row['forma_pagamento']} | "
+                f"{row.get('forma_pagamento', 'Não informado')} | "
                 f"R$ {float(row['valor']):.2f}"
             )
 
-            pdf.set_x(pdf.l_margin)
-            pdf.multi_cell(largura_util, 6, linha)
+            pdf.multi_cell(largura, 6, linha)
 
     buffer = BytesIO()
     buffer.write(pdf.output(dest="S"))
     buffer.seek(0)
-
     return buffer
 
 
@@ -65,22 +63,21 @@ def tela_dashboard(usuario):
     st.title("📊 Dashboard Financeiro")
 
     hoje = datetime.today()
-    mes = st.selectbox("Mês", list(range(1, 13)), index=hoje.month - 1)
-    ano = st.selectbox("Ano", list(range(2023, hoje.year + 1)), index=(hoje.year - 2023))
+    mes = st.selectbox("Mês", range(1, 13), index=hoje.month - 1)
+    ano = st.selectbox("Ano", range(2023, hoje.year + 1), index=hoje.year - 2023)
 
     periodo = f"{mes:02d}/{ano}"
-
-    inicio_mes = f"{ano}-{mes:02d}-01"
-    fim_mes = f"{ano + 1}-01-01" if mes == 12 else f"{ano}-{mes + 1:02d}-01"
+    inicio = f"{ano}-{mes:02d}-01"
+    fim = f"{ano + 1}-01-01" if mes == 12 else f"{ano}-{mes + 1:02d}-01"
 
     # =========================
     # SALDO ANTERIOR
     # =========================
-    sql_saldo_anterior = """
+    sql_saldo = """
         SELECT COALESCE(SUM(
             CASE
                 WHEN UPPER(tipo) = 'ENTRADA' THEN valor
-                WHEN UPPER(tipo) IN ('SAIDA', 'SAÍDA') THEN -valor
+                WHEN UPPER(tipo) IN ('SAIDA','SAÍDA') THEN -valor
                 ELSE 0
             END
         ), 0)
@@ -89,23 +86,18 @@ def tela_dashboard(usuario):
     """
 
     with engine.connect() as conn:
-        saldo_anterior = conn.execute(
-            text(sql_saldo_anterior),
-            {"inicio": inicio_mes}
-        ).scalar()
-
-    saldo_anterior = float(saldo_anterior or 0)
+        saldo_anterior = float(conn.execute(text(sql_saldo), {"inicio": inicio}).scalar() or 0)
 
     # =========================
     # LANÇAMENTOS DO MÊS
     # =========================
     sql_lancamentos = """
-        SELECT 
+        SELECT
             data,
             tipo,
             descricao,
             categoria,
-            forma_pagamento,
+            COALESCE(forma_pagamento, 'Não informado') AS forma_pagamento,
             valor
         FROM lancamentos
         WHERE data >= :inicio AND data < :fim
@@ -115,15 +107,15 @@ def tela_dashboard(usuario):
     df = pd.read_sql(
         text(sql_lancamentos),
         engine,
-        params={"inicio": inicio_mes, "fim": fim_mes}
+        params={"inicio": inicio, "fim": fim}
     )
 
     if not df.empty:
         df["valor"] = df["valor"].astype(float)
-        df["tipo_norm"] = df["tipo"].str.upper().str.strip()
+        tipo = df["tipo"].str.upper()
 
-        entradas = df.loc[df["tipo_norm"] == "ENTRADA", "valor"].sum()
-        saidas = df.loc[df["tipo_norm"].isin(["SAIDA", "SAÍDA"]), "valor"].sum()
+        entradas = df.loc[tipo == "ENTRADA", "valor"].sum()
+        saidas = df.loc[tipo.isin(["SAIDA", "SAÍDA"]), "valor"].sum()
     else:
         entradas = 0.0
         saidas = 0.0
@@ -133,40 +125,26 @@ def tela_dashboard(usuario):
     # =========================
     # MÉTRICAS
     # =========================
-    col1, col2, col3, col4 = st.columns(4)
-    col1.metric("Saldo Anterior", f"R$ {saldo_anterior:.2f}")
-    col2.metric("Entradas", f"R$ {entradas:.2f}")
-    col3.metric("Saídas", f"R$ {saidas:.2f}")
-    col4.metric("Saldo Final", f"R$ {saldo_final:.2f}")
+    c1, c2, c3, c4 = st.columns(4)
+    c1.metric("Saldo Anterior", f"R$ {saldo_anterior:.2f}")
+    c2.metric("Entradas", f"R$ {entradas:.2f}")
+    c3.metric("Saídas", f"R$ {saidas:.2f}")
+    c4.metric("Saldo Final", f"R$ {saldo_final:.2f}")
 
     st.divider()
-    st.subheader("📋 Lançamentos do Mês")
+    st.subheader("📋 Lançamentos")
 
     if df.empty:
-        st.info("Nenhum lançamento neste período.")
+        st.info("Nenhum lançamento no período.")
     else:
-        st.dataframe(
-            df.drop(columns=["tipo_norm"], errors="ignore"),
-            use_container_width=True
-        )
+        st.dataframe(df, use_container_width=True)
 
-    # =========================
-    # PDF
-    # =========================
     st.divider()
     if st.button("📄 Gerar Relatório PDF"):
-        pdf_buffer = gerar_pdf(
-            df,
-            periodo,
-            saldo_anterior,
-            entradas,
-            saidas,
-            saldo_final
-        )
-
+        pdf = gerar_pdf(df, periodo, saldo_anterior, entradas, saidas, saldo_final)
         st.download_button(
             "⬇️ Baixar PDF",
-            pdf_buffer,
+            pdf,
             file_name=f"relatorio_{ano}_{mes:02d}.pdf",
             mime="application/pdf"
         )
