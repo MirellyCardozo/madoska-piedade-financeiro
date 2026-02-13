@@ -1,135 +1,184 @@
 import streamlit as st
 import pandas as pd
 from sqlalchemy import text
+from datetime import date
+
 from database import engine
 
+
+FORMAS_PAGAMENTO = [
+    "Pix",
+    "Cartão Débito",
+    "Cartão Crédito",
+    "Dinheiro",
+    "Boleto",
+    "Transferência"
+]
+
+
 def tela_lancamentos(usuario):
-    st.title("📋 Lançamentos")
+    st.title("💰 Lançamentos Financeiros")
 
-    # =========================
-    # FORMULÁRIO NOVO LANÇAMENTO
-    # =========================
-    with st.form("novo_lancamento"):
-        data = st.date_input("Data")
+    st.subheader("➕ Novo lançamento")
+
+    with st.form("form_lancamento", clear_on_submit=True):
+        data = st.date_input("Data", value=date.today())
+
+        tipo = st.selectbox(
+            "Tipo",
+            ["Entrada", "Saída"]
+        )
+
         descricao = st.text_input("Descrição")
-        categoria = st.selectbox("Categoria", ["Fornecedor", "Aluguel", "Energia", "Manutenção", "Funcionários", "Impostos","Outros"])
-        tipo = st.selectbox("Tipo", ["Entrada", "Saída"])
-        valor = st.number_input("Valor", min_value=0.01, step=0.01)
 
-        salvar = st.form_submit_button("Salvar")
+        categoria = st.text_input("Categoria")
 
-        if salvar:
-            with engine.begin() as conn:
-                conn.execute(
-                    text("""
-                        INSERT INTO lancamentos (usuario_id, data, descricao, categoria, tipo, valor)
-                        VALUES (:usuario_id, :data, :descricao, :categoria, :tipo, :valor)
-                    """),
-                    {
-                        "usuario_id": usuario["id"],
-                        "data": data,
-                        "descricao": descricao,
-                        "categoria": categoria,
-                        "tipo": tipo,
-                        "valor": valor
-                    }
-                )
-            st.success("✅ Lançamento cadastrado com sucesso")
-            st.rerun()
+        pagamento = st.selectbox(
+            "Forma de pagamento",
+            FORMAS_PAGAMENTO
+        )
+
+        valor = st.number_input(
+            "Valor (R$)",
+            min_value=0.01,
+            step=0.01,
+            format="%.2f"
+        )
+
+        salvar = st.form_submit_button("Salvar lançamento")
+
+    if salvar:
+        sql = """
+            INSERT INTO lancamentos
+            (data, tipo, descricao, categoria, pagamento, valor, usuario_id)
+            VALUES
+            (:data, :tipo, :descricao, :categoria, :pagamento, :valor, :usuario_id)
+        """
+
+        with engine.begin() as conn:
+            conn.execute(
+                text(sql),
+                {
+                    "data": data,
+                    "tipo": tipo,
+                    "descricao": descricao,
+                    "categoria": categoria,
+                    "pagamento": pagamento,
+                    "valor": valor,
+                    "usuario_id": usuario["id"]
+                }
+            )
+
+        st.success("✅ Lançamento cadastrado com sucesso")
+        st.rerun()
 
     st.divider()
+    st.subheader("📋 Lançamentos cadastrados")
 
-    # =========================
-    # LISTAR LANÇAMENTOS
-    # =========================
-    with engine.connect() as conn:
-        df = pd.read_sql(
-            text("""
-                SELECT id, data, descricao, categoria, tipo, valor
-                FROM lancamentos
-                WHERE usuario_id = :uid
-                ORDER BY data DESC
-            """),
-            conn,
-            params={"uid": usuario["id"]}
-        )
+    df = pd.read_sql(
+        """
+        SELECT
+            id,
+            data,
+            tipo,
+            descricao,
+            categoria,
+            pagamento,
+            valor
+        FROM lancamentos
+        ORDER BY data DESC, id DESC
+        """,
+        engine
+    )
 
     if df.empty:
         st.info("Nenhum lançamento cadastrado.")
         return
 
-    st.subheader("📄 Lançamentos cadastrados")
-    st.dataframe(df, use_container_width=True)
+    df["valor"] = df["valor"].astype(float)
 
-    # =========================
-    # SELECIONAR LANÇAMENTO
-    # =========================
-    st.subheader("✏️ Editar ou 🗑️ Excluir")
+    for _, row in df.iterrows():
+        with st.container(border=True):
+            cols = st.columns([2, 2, 2, 2, 2, 1, 1])
 
-    lancamento_id = st.selectbox(
-        "Selecione um lançamento pelo ID",
-        df["id"]
-    )
+            cols[0].write(row["data"])
+            cols[1].write(row["tipo"])
+            cols[2].write(row["descricao"])
+            cols[3].write(row["categoria"])
+            cols[4].write(row["pagamento"])
+            cols[5].write(f"R$ {row['valor']:.2f}")
 
-    lancamento = df[df["id"] == lancamento_id].iloc[0]
+            editar = cols[6].button("✏️", key=f"edit_{row['id']}")
+            excluir = cols[6].button("🗑️", key=f"del_{row['id']}")
 
-    # =========================
-    # FORMULÁRIO DE EDIÇÃO
-    # =========================
-    with st.form("editar_lancamento"):
-        nova_data = st.date_input("Data", lancamento["data"])
-        nova_descricao = st.text_input("Descrição", lancamento["descricao"])
-        nova_categoria = st.selectbox(
-            "Categoria",
-        ["Fornecedor", "Aluguel", "Energia", "Manutenção", "Funcionários", "Impostos","Outros"],
-            index=["Fornecedor", "Aluguel", "Energia", "Manutenção", "Funcionários", "Impostos","Outros"].index(lancamento["categoria"])
-        )
-        novo_tipo = st.selectbox(
-            "Tipo",
-            ["Entrada", "Saída"],
-            index=["Entrada", "Saída"].index(lancamento["tipo"])
-        )
-        novo_valor = st.number_input("Valor", value=float(lancamento["valor"]), step=0.01)
+            # 🗑️ EXCLUIR
+            if excluir:
+                with engine.begin() as conn:
+                    conn.execute(
+                        text("DELETE FROM lancamentos WHERE id = :id"),
+                        {"id": row["id"]}
+                    )
+                st.success("🗑️ Lançamento excluído")
+                st.rerun()
 
-        col1, col2 = st.columns(2)
+            # ✏️ EDITAR
+            if editar:
+                st.subheader("✏️ Editar lançamento")
 
-        with col1:
-            atualizar = st.form_submit_button("💾 Atualizar")
+                with st.form(f"form_edit_{row['id']}"):
+                    nova_data = st.date_input("Data", value=row["data"])
+                    novo_tipo = st.selectbox(
+                        "Tipo",
+                        ["Entrada", "Saída"],
+                        index=0 if row["tipo"] == "Entrada" else 1
+                    )
+                    nova_descricao = st.text_input(
+                        "Descrição",
+                        value=row["descricao"]
+                    )
+                    nova_categoria = st.text_input(
+                        "Categoria",
+                        value=row["categoria"]
+                    )
+                    novo_pagamento = st.selectbox(
+                        "Forma de pagamento",
+                        FORMAS_PAGAMENTO,
+                        index=FORMAS_PAGAMENTO.index(row["pagamento"])
+                    )
+                    novo_valor = st.number_input(
+                        "Valor",
+                        min_value=0.01,
+                        value=float(row["valor"]),
+                        step=0.01,
+                        format="%.2f"
+                    )
 
-        with col2:
-            excluir = st.form_submit_button("🗑️ Excluir")
+                    atualizar = st.form_submit_button("Atualizar")
 
-        # ATUALIZAR
-        if atualizar:
-            with engine.begin() as conn:
-                conn.execute(
-                    text("""
-                        UPDATE lancamentos
-                        SET data = :data,
-                            descricao = :descricao,
-                            categoria = :categoria,
-                            tipo = :tipo,
-                            valor = :valor
-                        WHERE id = :id
-                    """),
-                    {
-                        "data": nova_data,
-                        "descricao": nova_descricao,
-                        "categoria": nova_categoria,
-                        "tipo": novo_tipo,
-                        "valor": novo_valor,
-                        "id": lancamento_id
-                    }
-                )
-            st.success("✅ Lançamento atualizado")
-            st.rerun()
+                if atualizar:
+                    with engine.begin() as conn:
+                        conn.execute(
+                            text("""
+                                UPDATE lancamentos
+                                SET
+                                    data = :data,
+                                    tipo = :tipo,
+                                    descricao = :descricao,
+                                    categoria = :categoria,
+                                    pagamento = :pagamento,
+                                    valor = :valor
+                                WHERE id = :id
+                            """),
+                            {
+                                "id": row["id"],
+                                "data": nova_data,
+                                "tipo": novo_tipo,
+                                "descricao": nova_descricao,
+                                "categoria": nova_categoria,
+                                "pagamento": novo_pagamento,
+                                "valor": novo_valor
+                            }
+                        )
 
-        # EXCLUIR
-        if excluir:
-            with engine.begin() as conn:
-                conn.execute(
-                    text("DELETE FROM lancamentos WHERE id = :id"),
-                    {"id": lancamento_id}
-                )
-            st.success("🗑️ Lançamento excluído")
-            st.rerun()
+                    st.success("✅ Lançamento atualizado")
+                    st.rerun()
