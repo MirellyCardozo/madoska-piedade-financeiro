@@ -1,5 +1,5 @@
 import streamlit as st
-from auth import tela_login
+from auth import login
 from dashboard import tela_dashboard
 from lancamentos import tela_lancamentos
 from estoque import tela_estoque
@@ -18,23 +18,18 @@ def tela_principal():
 
     if menu == "Dashboard":
         tela_dashboard(usuario_id)
-
     elif menu == "Lançamentos":
         tela_lancamentos(usuario_id)
-
     elif menu == "Estoque":
         tela_estoque(usuario_id)
-
     elif menu == "Usuários":
         tela_usuarios(usuario_id)
-
     elif menu == "Sair":
         st.session_state.clear()
         st.experimental_rerun()
 
 
-# ========= FLUXO CORRETO =========
 if "usuario_id" not in st.session_state:
-    tela_login()
+    login()   # 👈 AQUI
 else:
     tela_principal()
