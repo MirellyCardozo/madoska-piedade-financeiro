@@ -2,7 +2,6 @@ import streamlit as st
 import pandas as pd
 from sqlalchemy import text
 from datetime import datetime
-from decimal import Decimal
 from io import BytesIO
 from fpdf import FPDF
 
@@ -34,6 +33,7 @@ def gerar_pdf(df, periodo, saldo_anterior, entradas, saidas, saldo_final):
     pdf.cell(0, 8, "Lançamentos do mês:", ln=True)
 
     pdf.set_font("Arial", "", 9)
+    largura_util = pdf.w - 2 * pdf.l_margin
 
     if df.empty:
         pdf.cell(0, 8, "Nenhum lançamento no período.", ln=True)
@@ -44,13 +44,15 @@ def gerar_pdf(df, periodo, saldo_anterior, entradas, saidas, saldo_final):
                 f"{row['tipo']} | "
                 f"{row['descricao']} | "
                 f"{row['categoria']} | "
+                f"{row['forma_pagamento']} | "
                 f"R$ {float(row['valor']):.2f}"
             )
-            pdf.multi_cell(0, 6, linha)
+
+            pdf.set_x(pdf.l_margin)
+            pdf.multi_cell(largura_util, 6, linha)
 
     buffer = BytesIO()
-    pdf_bytes = pdf.output(dest="S")
-    buffer.write(pdf_bytes)
+    buffer.write(pdf.output(dest="S"))
     buffer.seek(0)
 
     return buffer
@@ -69,23 +71,19 @@ def tela_dashboard(usuario):
     periodo = f"{mes:02d}/{ano}"
 
     inicio_mes = f"{ano}-{mes:02d}-01"
-    if mes == 12:
-        fim_mes = f"{ano}-12-31"
-    else:
-        fim_mes = f"{ano}-{mes + 1:02d}-01"
+    fim_mes = f"{ano + 1}-01-01" if mes == 12 else f"{ano}-{mes + 1:02d}-01"
 
     # =========================
     # SALDO ANTERIOR
     # =========================
     sql_saldo_anterior = """
-        SELECT
-            COALESCE(SUM(
-                CASE
-                    WHEN UPPER(tipo) = 'ENTRADA' THEN valor
-                    WHEN UPPER(tipo) IN ('SAIDA', 'SAÍDA') THEN -valor
-                    ELSE 0
-                END
-            ), 0)
+        SELECT COALESCE(SUM(
+            CASE
+                WHEN UPPER(tipo) = 'ENTRADA' THEN valor
+                WHEN UPPER(tipo) IN ('SAIDA', 'SAÍDA') THEN -valor
+                ELSE 0
+            END
+        ), 0)
         FROM lancamentos
         WHERE data < :inicio
     """
@@ -102,11 +100,12 @@ def tela_dashboard(usuario):
     # LANÇAMENTOS DO MÊS
     # =========================
     sql_lancamentos = """
-        SELECT
+        SELECT 
             data,
             tipo,
             descricao,
             categoria,
+            forma_pagamento,
             valor
         FROM lancamentos
         WHERE data >= :inicio AND data < :fim
@@ -121,34 +120,20 @@ def tela_dashboard(usuario):
 
     if not df.empty:
         df["valor"] = df["valor"].astype(float)
-
-    # =========================
-    # ENTRADAS E SAÍDAS
-    # =========================
-    if df.empty:
-        entradas = 0.0
-        saidas = 0.0
-    else:
         df["tipo_norm"] = df["tipo"].str.upper().str.strip()
 
-        entradas = df.loc[
-            df["tipo_norm"] == "ENTRADA", "valor"
-        ].sum()
-
-        saidas = df.loc[
-            df["tipo_norm"].isin(["SAIDA", "SAÍDA"]), "valor"
-        ].sum()
-
-    entradas = float(entradas or 0)
-    saidas = float(saidas or 0)
+        entradas = df.loc[df["tipo_norm"] == "ENTRADA", "valor"].sum()
+        saidas = df.loc[df["tipo_norm"].isin(["SAIDA", "SAÍDA"]), "valor"].sum()
+    else:
+        entradas = 0.0
+        saidas = 0.0
 
     saldo_final = saldo_anterior + entradas - saidas
 
     # =========================
-    # EXIBIÇÃO
+    # MÉTRICAS
     # =========================
     col1, col2, col3, col4 = st.columns(4)
-
     col1.metric("Saldo Anterior", f"R$ {saldo_anterior:.2f}")
     col2.metric("Entradas", f"R$ {entradas:.2f}")
     col3.metric("Saídas", f"R$ {saidas:.2f}")
@@ -180,8 +165,8 @@ def tela_dashboard(usuario):
         )
 
         st.download_button(
-            label="⬇️ Baixar PDF",
-            data=pdf_buffer,
+            "⬇️ Baixar PDF",
+            pdf_buffer,
             file_name=f"relatorio_{ano}_{mes:02d}.pdf",
             mime="application/pdf"
         )
