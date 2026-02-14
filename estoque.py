@@ -21,9 +21,9 @@ def tela_estoque(user):
             st.rerun()
 
     rows = executar(
-        "SELECT nome, quantidade, preco FROM estoque ORDER BY nome",
-        fetchall=True
-    )
+    "SELECT nome, quantidade, preco FROM estoque ORDER BY nome"
+)
+
 
     if rows:
         st.dataframe(rows, use_container_width=True)
