@@ -26,10 +26,10 @@ def gerar_pdf(df, periodo, saldo_anterior, entradas, saidas, saldo_final):
     pdf.cell(0, 8, f"Período: {periodo}", ln=True)
     pdf.ln(3)
 
-    pdf.cell(0, 8, f"Saldo anterior: R$ {saldo_anterior:.2f}", ln=True)
-    pdf.cell(0, 8, f"Total de entradas: R$ {entradas:.2f}", ln=True)
-    pdf.cell(0, 8, f"Total de saídas: R$ {saidas:.2f}", ln=True)
-    pdf.cell(0, 8, f"Saldo final: R$ {saldo_final:.2f}", ln=True)
+    pdf.cell(0, 8, f"Saldo anterior: R$ {float(saldo_anterior):.2f}", ln=True)
+    pdf.cell(0, 8, f"Entradas: R$ {float(entradas):.2f}", ln=True)
+    pdf.cell(0, 8, f"Saídas: R$ {float(saidas):.2f}", ln=True)
+    pdf.cell(0, 8, f"Saldo final: R$ {float(saldo_final):.2f}", ln=True)
 
     pdf.ln(6)
     pdf.set_font("Arial", "B", 11)
@@ -38,15 +38,20 @@ def gerar_pdf(df, periodo, saldo_anterior, entradas, saidas, saldo_final):
 
     pdf.set_font("Arial", size=9)
 
+    # 👉 CORREÇÃO DO ERRO AQUI (largura fixa + string segura)
     for _, row in df.iterrows():
         linha = (
-            f"{row['data']} | {row['tipo']} | {row['categoria']} | "
-            f"{row['pagamento']} | {row['descricao']} | R$ {row['valor']:.2f}"
+            f"{row['data']} | "
+            f"{row['tipo']} | "
+            f"{row['categoria']} | "
+            f"{row['pagamento']} | "
+            f"{row['descricao']} | "
+            f"R$ {float(row['valor']):.2f}"
         )
-        pdf.multi_cell(0, 6, linha)
+        pdf.multi_cell(190, 6, linha)
 
     buffer = BytesIO()
-    buffer.write(pdf.output(dest="S").encode("latin-1"))
+    buffer.write(pdf.output(dest="S").encode("latin-1", errors="replace"))
     buffer.seek(0)
     return buffer
 
@@ -60,12 +65,12 @@ def tela_dashboard(usuario_id):
     mes_ref = st.date_input("Mês de referência", value=date.today())
 
     inicio_mes = date(mes_ref.year, mes_ref.month, 1)
-    if mes_ref.month == 12:
-        fim_mes = date(mes_ref.year + 1, 1, 1)
-    else:
-        fim_mes = date(mes_ref.year, mes_ref.month + 1, 1)
+    fim_mes = (
+        date(mes_ref.year + 1, 1, 1)
+        if mes_ref.month == 12
+        else date(mes_ref.year, mes_ref.month + 1, 1)
+    )
 
-    # -------- SALDO ANTERIOR --------
     saldo_anterior = pd.read_sql(
         text(
             """
@@ -84,7 +89,6 @@ def tela_dashboard(usuario_id):
         params={"usuario_id": usuario_id, "inicio": inicio_mes},
     ).iloc[0]["saldo"]
 
-    # -------- MOVIMENTAÇÃO DO MÊS --------
     df = pd.read_sql(
         text(
             """
@@ -108,7 +112,6 @@ def tela_dashboard(usuario_id):
     saidas = df.loc[df["tipo"] == "Saída", "valor"].sum()
     saldo_final = saldo_anterior + entradas - saidas
 
-    # -------- RESUMO --------
     col1, col2, col3, col4 = st.columns(4)
     col1.metric("Saldo anterior", f"R$ {saldo_anterior:.2f}")
     col2.metric("Entradas", f"R$ {entradas:.2f}")
@@ -116,13 +119,9 @@ def tela_dashboard(usuario_id):
     col4.metric("Saldo final", f"R$ {saldo_final:.2f}")
 
     st.divider()
-
     st.subheader("Lançamentos do mês")
     st.dataframe(df, use_container_width=True, hide_index=True)
 
-    # ==========================
-    # BOTÃO QUE TINHA SUMIDO (AGORA VOLTOU)
-    # ==========================
     st.divider()
     st.subheader("Exportar relatório")
 
@@ -137,7 +136,7 @@ def tela_dashboard(usuario_id):
         )
 
         st.download_button(
-            label="Baixar PDF",
+            "Baixar PDF",
             data=pdf_buffer,
             file_name=f"relatorio_{mes_ref.month}_{mes_ref.year}.pdf",
             mime="application/pdf",
