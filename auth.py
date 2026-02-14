@@ -23,6 +23,6 @@ def login():
 
         if result and pbkdf2_sha256.verify(senha, result.senha):
             st.session_state["usuario_id"] = result.id
-            st.experimental_rerun()
+            st.rerun()
         else:
             st.error("Usuário ou senha inválidos")
