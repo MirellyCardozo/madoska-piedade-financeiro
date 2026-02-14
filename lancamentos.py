@@ -87,7 +87,7 @@ def tela_lancamentos(usuario_id):
     st.subheader("Lançamentos cadastrados")
 
     df = pd.read_sql(
-        """
+    text("""
         SELECT
             id,
             data,
@@ -99,10 +99,11 @@ def tela_lancamentos(usuario_id):
         FROM lancamentos
         WHERE usuario_id = :usuario_id
         ORDER BY data DESC
-        """,
-        engine,
-        params={"usuario_id": usuario_id}
-    )
+    """),
+    engine,
+    params={"usuario_id": usuario_id}
+)
+
 
     if df.empty:
         st.info("Nenhum lançamento cadastrado.")
