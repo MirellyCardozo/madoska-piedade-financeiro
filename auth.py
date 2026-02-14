@@ -1,19 +1,28 @@
+import streamlit as st
+from sqlalchemy import text
 from passlib.hash import pbkdf2_sha256
-from database import executar
+from database import engine
 
-def autenticar(usuario, senha):
-    user = executar(
-        "SELECT id, nome, usuario, senha, perfil FROM usuarios WHERE usuario = :u",
-        {"u": usuario},
-        fetchone=True
-    )
 
-    if user and pbkdf2_sha256.verify(senha, user.senha):
-        return {
-            "id": user.id,
-            "nome": user.nome,
-            "usuario": user.usuario,
-            "perfil": user.perfil
-        }
+def login():
+    st.title("Login")
 
-    return None
+    usuario = st.text_input("Usuário")
+    senha = st.text_input("Senha", type="password")
+
+    if st.button("Entrar"):
+        with engine.connect() as conn:
+            result = conn.execute(
+                text("""
+                    SELECT id, senha
+                    FROM usuarios
+                    WHERE usuario = :usuario
+                """),
+                {"usuario": usuario}
+            ).fetchone()
+
+        if result and pbkdf2_sha256.verify(senha, result.senha):
+            st.session_state["usuario_id"] = result.id
+            st.experimental_rerun()
+        else:
+            st.error("Usuário ou senha inválidos")

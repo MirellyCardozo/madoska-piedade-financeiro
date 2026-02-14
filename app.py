@@ -30,6 +30,6 @@ def tela_principal():
 
 
 if "usuario_id" not in st.session_state:
-    login()   # 👈 AQUI
+    login()
 else:
     tela_principal()
