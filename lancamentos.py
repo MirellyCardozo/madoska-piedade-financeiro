@@ -1,63 +1,115 @@
 import streamlit as st
 import pandas as pd
 from sqlalchemy import text
-from database import engine, executar
+from database import engine
 
-FORMAS_PAGAMENTO = [
+
+# ==============================
+# CATEGORIAS FIXAS (COMO PEDIDO)
+# ==============================
+CATEGORIAS = [
+    "Fornecedor",
+    "Aluguel",
+    "Funcionários",
+    "Impostos",
+    "Manutenção",
+    "Marketing",
+    "Outros"
+]
+
+PAGAMENTOS = [
     "Pix",
     "Cartão Débito",
     "Cartão Crédito",
     "Dinheiro",
-    "Boleto",
-    "Transferência"
+    "Transferência",
+    "Boleto"
 ]
+
 
 def tela_lancamentos(usuario_id):
     st.title("Lançamentos")
 
-    categorias = pd.read_sql(
-        "SELECT DISTINCT categoria FROM lancamentos ORDER BY categoria",
-        engine
-    )["categoria"].tolist()
+    # ==============================
+    # FORMULÁRIO
+    # ==============================
+    with st.form("form_lancamento"):
+        col1, col2 = st.columns(2)
 
-    with st.form("novo_lancamento"):
-        data = st.date_input("Data")
-        tipo = st.selectbox("Tipo", ["Entrada", "Saída"])
-        categoria = st.selectbox("Categoria", categorias)
-        pagamento = st.selectbox("Forma de pagamento", FORMAS_PAGAMENTO)
-        descricao = st.text_input("Descrição")
-        valor = st.number_input("Valor", min_value=0.01, step=0.01)
+        with col1:
+            data = st.date_input("Data")
+            tipo = st.selectbox("Tipo", ["Entrada", "Saída"])
+            categoria = st.selectbox("Categoria", CATEGORIAS)
 
-        salvar = st.form_submit_button("Salvar")
+        with col2:
+            pagamento = st.selectbox("Forma de pagamento", PAGAMENTOS)
+            valor = st.number_input("Valor", min_value=0.01, step=0.01)
+            descricao = st.text_input("Descrição")
 
-        if salvar:
-            executar("""
-                INSERT INTO lancamentos
-                (data, tipo, categoria, pagamento, descricao, valor, usuario_id)
-                VALUES
-                (:data, :tipo, :categoria, :pagamento, :descricao, :valor, :usuario)
-            """, {
-                "data": data,
-                "tipo": tipo,
-                "categoria": categoria,
-                "pagamento": pagamento,
-                "descricao": descricao,
-                "valor": valor,
-                "usuario": usuario_id
-            })
-            st.success("Lançamento salvo")
+        salvar = st.form_submit_button("Salvar lançamento")
 
+    # ==============================
+    # SALVAR NO BANCO
+    # ==============================
+    if salvar:
+        if not descricao:
+            st.error("A descrição é obrigatória.")
+            return
+
+        sql = """
+            INSERT INTO lancamentos
+            (data, tipo, categoria, pagamento, valor, descricao, usuario_id)
+            VALUES
+            (:data, :tipo, :categoria, :pagamento, :valor, :descricao, :usuario_id)
+        """
+
+        with engine.begin() as conn:
+            conn.execute(
+                text(sql),
+                {
+                    "data": data,
+                    "tipo": tipo,
+                    "categoria": categoria,
+                    "pagamento": pagamento,
+                    "valor": valor,
+                    "descricao": descricao,
+                    "usuario_id": usuario_id
+                }
+            )
+
+        st.success("Lançamento salvo com sucesso.")
+        st.rerun()
+
+    # ==============================
+    # LISTAGEM DOS LANÇAMENTOS
+    # ==============================
     st.divider()
+    st.subheader("Lançamentos cadastrados")
 
-    df = pd.read_sql("""
-        SELECT id, data, tipo, categoria, pagamento, descricao, valor
+    df = pd.read_sql(
+        """
+        SELECT
+            id,
+            data,
+            tipo,
+            categoria,
+            pagamento,
+            descricao,
+            valor
         FROM lancamentos
+        WHERE usuario_id = :usuario_id
         ORDER BY data DESC
-    """, engine)
+        """,
+        engine,
+        params={"usuario_id": usuario_id}
+    )
 
-    st.dataframe(df, use_container_width=True)
+    if df.empty:
+        st.info("Nenhum lançamento cadastrado.")
+        return
 
-    excluir_id = st.number_input("ID para excluir", min_value=1, step=1)
-    if st.button("Excluir lançamento"):
-        executar("DELETE FROM lancamentos WHERE id = :id", {"id": excluir_id})
-        st.success("Lançamento excluído")
+    st.dataframe(
+        df,
+        use_container_width=True,
+        hide_index=True
+    )
